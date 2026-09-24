@@ -162,13 +162,20 @@
         <button onclick="closeManualCreator()" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times text-xl"></i></button>
       </div>
 
+      <div id="wizardBar" class="flex items-center gap-2 text-xs font-medium mb-4">
+        <span id="wizDot1" class="px-2 py-1 rounded-full bg-amber-500 text-white">1 Runners</span>
+        <span class="text-slate-300">→</span>
+        <span id="wizDot2" class="px-2 py-1 rounded-full bg-slate-200 text-slate-500">2 Partes</span>
+      </div>
+
+      <div id="wizardStep1">
       <div class="mb-5">
         <label class="block text-sm font-medium mb-1">Nome do Kit</label>
         <input id="newKitName" type="text" placeholder="Ex: MG Unicorn Gundam" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
 
       <!-- Fase 1 -->
-      <div class="mb-5 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+      <div id="fase1Panel" class="mb-5 p-4 bg-amber-50 border border-amber-200 rounded-xl">
         <label class="block text-sm font-medium mb-1 flex items-center gap-2">
           <span class="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded">1</span>
           Runners do kit
@@ -187,8 +194,44 @@
           <div id="kitRunnersList" class="flex flex-wrap gap-1.5 mt-1 min-h-[32px]"></div>
         </div>
       </div>
+      <button onclick="confirmWizardStep1()" class="w-full bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-xl font-medium mb-2">
+        Confirmar runners e continuar
+      </button>
+      </div>
 
       <!-- Fase 2 -->
+      <div id="wizardStep2" class="hidden">
+      <button onclick="backToWizardStep1()" class="text-sm text-slate-500 hover:text-slate-800 mb-3">
+        ← Voltar (desbloqueia runners)
+      </button>
+      <div id="step2ModePick" class="mb-5">
+        <p class="text-sm font-medium mb-3">Como quer organizar as partes?</p>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <button onclick="chooseStep2Mode('simple')" class="text-left border rounded-xl p-4 hover:border-blue-500 hover:bg-blue-50">
+            <div class="font-semibold mb-1">Modo simplificado</div>
+            <p class="text-xs text-slate-500">Arraste os runners para a silhueta. Sem número de página.</p>
+          </button>
+          <button onclick="chooseStep2Mode('full')" class="text-left border rounded-xl p-4 hover:border-blue-500 hover:bg-blue-50">
+            <div class="font-semibold mb-1">Modo completo</div>
+            <p class="text-xs text-slate-500">Partes + etapas + página do manual.</p>
+          </button>
+        </div>
+      </div>
+      <div id="step2ModeToggle" class="hidden flex gap-2 mb-4">
+        <button id="toggleSimpleBtn" type="button" onclick="chooseStep2Mode('simple')" class="flex-1 py-2 rounded-lg text-sm font-medium border">Simplificado</button>
+        <button id="toggleFullBtn" type="button" onclick="chooseStep2Mode('full')" class="flex-1 py-2 rounded-lg text-sm font-medium border">Completo</button>
+      </div>
+
+      <div id="simpleModePanel" class="hidden mb-4">
+        <p class="text-xs text-slate-500 mb-2">O estoque não some: o mesmo runner pode ir para várias partes. Arraste ou toque no runner e depois na zona. × tira só daquela parte.</p>
+        <div id="simplePool" class="flex flex-wrap gap-1.5 min-h-[40px] p-2 mb-3 border border-dashed rounded-xl bg-slate-50"></div>
+        <div class="grid md:grid-cols-2 gap-4 items-start">
+          <div id="gundamSilhouette" class="relative mx-auto w-full max-w-[260px]"></div>
+          <div id="simplePartLists" class="space-y-2 text-sm"></div>
+        </div>
+      </div>
+
+      <div id="fullModePanel" class="hidden">
       <div class="mb-4">
         <label class="block text-sm font-medium mb-2 flex items-center gap-2">
           <span class="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">2</span>
@@ -218,6 +261,7 @@
           <i class="fas fa-plus mr-1"></i> Adicionar etapa
         </button>
       </div>
+      </div>
 
       <div class="mb-5">
         <label class="block text-sm font-medium mb-2">Pré-visualização</label>
@@ -231,6 +275,7 @@
           <i class="fas fa-check mr-1"></i> <span id="saveKitBtnLabel">Criar Kit</span>
         </button>
         <button onclick="closeManualCreator()" class="px-5 py-2.5 rounded-lg border hover:bg-slate-50">Cancelar</button>
+      </div>
       </div>
     </div>
   </div>
@@ -340,6 +385,22 @@
     let builderSections = [];
     let builderCurrentSecId = null;
     let builderSelectedRunners = new Set();
+    let builderWizardStep = 1;
+    let builderStep2Mode = null;
+    let builderRunnersLocked = false;
+    let builderSimplePick = null;
+    let builderSimpleMap = {};
+
+    const SIMPLE_PARTS = [
+      { id: "cabeca", name: "Cabeça", icon: "fa-hard-hat" },
+      { id: "torso", name: "Torso", icon: "fa-user" },
+      { id: "bracos", name: "Braços", icon: "fa-hand" },
+      { id: "cintura", name: "Cintura", icon: "fa-circle" },
+      { id: "pernas", name: "Pernas", icon: "fa-shoe-prints" },
+      { id: "backpack", name: "Backpack", icon: "fa-briefcase" },
+      { id: "armas", name: "Armas", icon: "fa-crosshairs" },
+      { id: "outros", name: "Outros", icon: "fa-cube" }
+    ];
 
     const PRESET_SECTIONS = [
       { name: "Braços", icon: "fa-hand" },
@@ -921,6 +982,10 @@
       renderStepRunnerPicker();
       renderSelectedRunners();
       renderKitPreview();
+      builderRunnersLocked = true;
+      document.getElementById("fase1Panel").classList.add("opacity-60", "pointer-events-none");
+      showWizardStep(2);
+      chooseStep2Mode("full");
       document.getElementById("creatorModal").classList.remove("hidden");
     }
 
@@ -929,21 +994,203 @@
       editingKitId = null;
     }
 
+    function resetSimpleMap() {
+      builderSimpleMap = {};
+      SIMPLE_PARTS.forEach(p => { builderSimpleMap[p.id] = []; });
+      builderSimplePick = null;
+    }
+
     function resetBuilder() {
       builderKitRunners = new Set();
       builderSections = [];
       builderCurrentSecId = null;
       builderSelectedRunners = new Set();
+      builderWizardStep = 1;
+      builderStep2Mode = null;
+      builderRunnersLocked = false;
+      resetSimpleMap();
       document.getElementById("newKitName").value = "";
       document.getElementById("stepPage").value = "";
       document.getElementById("customSectionName").value = "";
       document.getElementById("kitCustomRunner").value = "";
       document.getElementById("currentSectionLabel").textContent = "Nenhuma";
+      showWizardStep(1);
       renderKitRunnerButtons();
       renderKitRunnersList();
       renderPresetSections();
       renderStepRunnerPicker();
       renderSelectedRunners();
+      renderKitPreview();
+    }
+
+    function showWizardStep(n) {
+      builderWizardStep = n;
+      document.getElementById("wizardStep1").classList.toggle("hidden", n !== 1);
+      document.getElementById("wizardStep2").classList.toggle("hidden", n !== 2);
+      document.getElementById("wizDot1").className = n === 1
+        ? "px-2 py-1 rounded-full bg-amber-500 text-white"
+        : "px-2 py-1 rounded-full bg-amber-100 text-amber-800";
+      document.getElementById("wizDot2").className = n === 2
+        ? "px-2 py-1 rounded-full bg-blue-600 text-white"
+        : "px-2 py-1 rounded-full bg-slate-200 text-slate-500";
+    }
+
+    function confirmWizardStep1() {
+      const name = document.getElementById("newKitName").value.trim();
+      if (!name) { alert("Digite o nome do kit."); return; }
+      if (builderKitRunners.size === 0) { alert("Adicione pelo menos um runner."); return; }
+      if (!confirm("Confirmar estes runners? Depois só volta se desbloquear o passo 1.")) return;
+      builderRunnersLocked = true;
+      document.getElementById("fase1Panel").classList.add("opacity-60", "pointer-events-none");
+      builderStep2Mode = null;
+      document.getElementById("step2ModePick").classList.remove("hidden");
+      document.getElementById("step2ModeToggle").classList.add("hidden");
+      document.getElementById("simpleModePanel").classList.add("hidden");
+      document.getElementById("fullModePanel").classList.add("hidden");
+      showWizardStep(2);
+    }
+
+    function backToWizardStep1() {
+      builderRunnersLocked = false;
+      builderStep2Mode = null;
+      document.getElementById("fase1Panel").classList.remove("opacity-60", "pointer-events-none");
+      showWizardStep(1);
+    }
+
+    function chooseStep2Mode(mode) {
+      builderStep2Mode = mode;
+      document.getElementById("step2ModePick").classList.add("hidden");
+      document.getElementById("step2ModeToggle").classList.remove("hidden");
+      document.getElementById("toggleSimpleBtn").className =
+        "flex-1 py-2 rounded-lg text-sm font-medium border " + (mode === "simple" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700");
+      document.getElementById("toggleFullBtn").className =
+        "flex-1 py-2 rounded-lg text-sm font-medium border " + (mode === "full" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700");
+      document.getElementById("simpleModePanel").classList.toggle("hidden", mode !== "simple");
+      document.getElementById("fullModePanel").classList.toggle("hidden", mode !== "full");
+      if (mode === "simple") {
+        syncSimpleFromSections();
+        renderSimpleMode();
+      }
+      renderKitPreview();
+    }
+
+    function assignedSimpleRunners() {
+      const s = new Set();
+      SIMPLE_PARTS.forEach(p => (builderSimpleMap[p.id] || []).forEach(r => s.add(parseRunner(r).name)));
+      return s;
+    }
+
+    function simplePoolRunners() {
+      return sortRunnerList(Array.from(builderKitRunners));
+    }
+
+    function syncSimpleFromSections() {
+      resetSimpleMap();
+      const nameToId = {
+        "cabeça": "cabeca", "cabeca": "cabeca", "torso": "torso", "torso + cabeça": "torso",
+        "braços": "bracos", "bracos": "bracos", "cintura": "cintura",
+        "pernas + pés": "pernas", "pernas": "pernas", "backpack": "backpack",
+        "armas": "armas", "outros": "outros"
+      };
+      builderSections.forEach(sec => {
+        const id = nameToId[(sec.name || "").toLowerCase()] || "outros";
+        const rs = [];
+        (sec.steps || []).forEach(st => (st.runners || []).forEach(r => rs.push(r)));
+        builderSimpleMap[id] = sortRunnerList([...new Set([...(builderSimpleMap[id]||[]), ...rs])]);
+      });
+    }
+
+    function applySimpleToSections() {
+      builderSections = SIMPLE_PARTS.filter(p => (builderSimpleMap[p.id] || []).length).map(p => ({
+        id: p.id + "-" + Date.now(),
+        name: p.name,
+        icon: p.icon,
+        steps: [{ page: "—", runners: sortRunnerList(builderSimpleMap[p.id]) }]
+      }));
+    }
+
+    function renderSimpleMode() {
+      const sil = document.getElementById("gundamSilhouette");
+      if (!sil) return;
+      sil.innerHTML = `
+        <svg viewBox="0 0 200 340" class="w-full" style="user-select:none">
+          <text x="100" y="14" text-anchor="middle" font-size="10" fill="#64748b" pointer-events="none">RX-78 (zonas)</text>
+          <ellipse data-part="cabeca" cx="100" cy="48" rx="22" ry="20" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
+          <text x="100" y="52" text-anchor="middle" font-size="8" fill="#334155" pointer-events="none">Cabeça</text>
+          <rect data-part="torso" x="72" y="72" width="56" height="58" rx="8" fill="#e2e8f0" stroke="#94a3b8" stroke-width="2"/>
+          <text x="100" y="106" text-anchor="middle" font-size="9" fill="#334155" pointer-events="none">Torso</text>
+          <rect data-part="bracos" x="22" y="76" width="42" height="70" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+          <rect data-part="bracos" x="136" y="76" width="42" height="70" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+          <text x="43" y="114" text-anchor="middle" font-size="8" fill="#1e40af" pointer-events="none">Braço</text>
+          <text x="157" y="114" text-anchor="middle" font-size="8" fill="#1e40af" pointer-events="none">Braço</text>
+          <rect data-part="cintura" x="78" y="134" width="44" height="24" rx="6" fill="#fde68a" stroke="#d97706" stroke-width="2"/>
+          <text x="100" y="150" text-anchor="middle" font-size="8" fill="#92400e" pointer-events="none">Cintura</text>
+          <rect data-part="pernas" x="58" y="164" width="36" height="110" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+          <rect data-part="pernas" x="106" y="164" width="36" height="110" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+          <text x="76" y="222" text-anchor="middle" font-size="8" fill="#166534" pointer-events="none">Perna</text>
+          <text x="124" y="222" text-anchor="middle" font-size="8" fill="#166534" pointer-events="none">Perna</text>
+          <rect data-part="backpack" x="8" y="168" width="42" height="68" rx="8" fill="#e2e8f0" stroke="#64748b" stroke-width="2"/>
+          <text x="29" y="206" text-anchor="middle" font-size="7" fill="#334155" pointer-events="none">Backpack</text>
+          <rect data-part="armas" x="8" y="244" width="42" height="76" rx="8" fill="#fee2e2" stroke="#ef4444" stroke-width="2"/>
+          <text x="29" y="286" text-anchor="middle" font-size="8" fill="#991b1b" pointer-events="none">Armas</text>
+          <rect data-part="outros" x="152" y="250" width="40" height="70" rx="8" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+          <text x="172" y="288" text-anchor="middle" font-size="8" fill="#334155" pointer-events="none">Outros</text>
+        </svg>`;
+      sil.querySelectorAll("[data-part]").forEach(el => {
+        el.style.cursor = "pointer";
+        el.addEventListener("dragover", e => { e.preventDefault(); el.setAttribute("stroke-width", "3"); });
+        el.addEventListener("dragleave", () => el.setAttribute("stroke-width", "2"));
+        el.addEventListener("drop", e => {
+          e.preventDefault();
+          el.setAttribute("stroke-width", "2");
+          const r = e.dataTransfer.getData("text/plain");
+          if (r) dropRunnerOnPart(el.getAttribute("data-part"), r);
+        });
+        el.addEventListener("click", () => {
+          if (builderSimplePick) dropRunnerOnPart(el.getAttribute("data-part"), builderSimplePick);
+        });
+      });
+
+      const pool = document.getElementById("simplePool");
+      const unused = simplePoolRunners();
+      pool.innerHTML = unused.length
+        ? unused.map(r => simpleChip(r, true)).join("")
+        : '<span class="text-slate-400 text-xs">Nenhum runner no estoque</span>';
+
+      document.getElementById("simplePartLists").innerHTML = SIMPLE_PARTS.map(p => {
+        const list = sortRunnerList(builderSimpleMap[p.id] || []);
+        return `<div class="border rounded-lg p-2 ${list.length ? "bg-white" : "bg-slate-50"}">
+          <div class="font-medium text-slate-700 mb-1"><i class="fas ${p.icon} mr-1 text-blue-600"></i>${p.name}</div>
+          <div class="flex flex-wrap gap-1 min-h-[24px]">${list.length ? list.map(r => simpleChip(r, false, p.id)).join("") : '<span class="text-slate-400 text-xs">—</span>'}</div>
+        </div>`;
+      }).join("");
+    }
+
+    function simpleChip(r, fromPool, partId) {
+      const sel = builderSimplePick === r ? "ring-2 ring-blue-500" : "";
+      const extra = fromPool ? "" : `<button onclick="event.stopPropagation(); removeSimpleRunner('${partId}','${r}')" class="ml-1 opacity-60 hover:opacity-100">×</button>`;
+      return `<span draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${r}')" onclick="pickSimpleRunner('${r}')" class="inline-flex items-center px-2 py-1 rounded-md text-xs font-bold border bg-amber-50 border-amber-300 cursor-grab ${sel}">${displayRunner(r)}${extra}</span>`;
+    }
+
+    function pickSimpleRunner(r) {
+      builderSimplePick = builderSimplePick === r ? null : r;
+      renderSimpleMode();
+    }
+    function dropRunnerOnPart(partId, runner) {
+      if (!partId || !runner) return;
+      const list = builderSimpleMap[partId] || [];
+      const exists = list.some(x => parseRunner(x).name === parseRunner(runner).name);
+      if (!exists) builderSimpleMap[partId] = sortRunnerList([...list, runner]);
+      builderSimplePick = null;
+      applySimpleToSections();
+      renderSimpleMode();
+      renderKitPreview();
+    }
+    function removeSimpleRunner(partId, runner) {
+      builderSimpleMap[partId] = (builderSimpleMap[partId] || []).filter(x => x !== runner);
+      builderSimplePick = null;
+      applySimpleToSections();
+      renderSimpleMode();
       renderKitPreview();
     }
 
@@ -984,19 +1231,23 @@
     }
 
     function addOrIncKitRunner(name) {
+      if (builderRunnersLocked) return;
       const entry = getKitRunnerEntry(name);
       setKitRunnerQty(name, entry ? entry.qty + 1 : 1);
       refreshBuilderUI();
     }
     function decKitRunner(name) {
+      if (builderRunnersLocked) return;
       const entry = getKitRunnerEntry(name);
       if (entry) { setKitRunnerQty(name, entry.qty - 1); refreshBuilderUI(); }
     }
     function removeKitRunner(name) {
+      if (builderRunnersLocked) return;
       setKitRunnerQty(name, 0);
       refreshBuilderUI();
     }
     function addKitCustomRunner() {
+      if (builderRunnersLocked) return;
       const val = document.getElementById("kitCustomRunner").value.trim().toUpperCase();
       if (!val) return;
       const parsed = parseRunner(val);
@@ -1167,6 +1418,7 @@
       const name = document.getElementById("newKitName").value.trim();
       if (!name) { alert("Digite o nome do kit."); return; }
       if (builderKitRunners.size === 0) { alert("Adicione pelo menos um runner."); return; }
+      if (builderStep2Mode === "simple") applySimpleToSections();
       if (builderSections.length === 0) { alert("Adicione pelo menos uma seção."); return; }
 
       const sections = builderSections.map(s => ({
