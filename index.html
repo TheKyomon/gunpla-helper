@@ -1,0 +1,1564 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gunpla Helper – Assistente de Montagem</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .runner-chip { transition: all 0.15s ease; }
+    .runner-chip:hover { transform: scale(1.05); }
+    .progress-bar { transition: width 0.4s ease; }
+    .section-card { transition: all 0.2s ease; }
+    .section-card:hover { box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.1); }
+    .needed { background-color: #dbeafe; border-color: #3b82f6; color: #1e40af; }
+    .not-needed { background-color: #f3f4f6; border-color: #d1d5db; color: #6b7280; opacity: 0.75; }
+    .separated { background-color: #dcfce7; border-color: #22c55e; color: #166534; }
+    .current-step { border-left: 4px solid #3b82f6; background-color: #eff6ff; }
+    .focus-mode #homeView, .focus-mode #workspaceView, .focus-mode header, .focus-mode footer { display: none !important; }
+    .focus-mode #focusView { display: block !important; }
+    #focusView { display: none; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <!-- Header -->
+  <header class="bg-gradient-to-r from-blue-700 to-indigo-800 text-white shadow-lg sticky top-0 z-40">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div class="cursor-pointer" onclick="showHome()">
+        <h1 class="text-xl font-bold flex items-center gap-2">
+          <i class="fas fa-robot"></i> Gunpla Helper
+        </h1>
+        <p class="text-blue-100 text-xs mt-0.5">Assistente de montagem de Gunpla</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2" id="headerActions">
+        <!-- filled by JS depending on view -->
+      </div>
+    </div>
+  </header>
+
+  <!-- ========== HOME / MENU PRINCIPAL ========== -->
+  <div id="homeView" class="max-w-6xl mx-auto px-4 py-8">
+    <div class="text-center mb-8">
+      <h2 class="text-2xl font-bold mb-2">Meus Kits</h2>
+      <p class="text-slate-500">Protótipo para feedback — adicione kits manualmente e acompanhe a montagem</p>
+      <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3 inline-block">
+        Os dados ficam só neste navegador. Use Exportar JSON para mandar um kit de volta.
+      </p>
+    </div>
+
+    <!-- Add kit buttons -->
+    <div class="flex flex-wrap justify-center gap-3 mb-10">
+      <button onclick="openManualCreator()" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-medium shadow-sm">
+        <i class="fas fa-keyboard"></i> Adicionar manualmente
+      </button>
+      <button onclick="document.getElementById('importInput').click()" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white px-5 py-3 rounded-xl font-medium shadow-sm">
+        <i class="fas fa-file-import"></i> Importar JSON
+      </button>
+      <input type="file" id="importInput" accept="application/json" class="hidden" onchange="importKitFile(event)" />
+      <button onclick="document.getElementById('pdfInput').click()" class="hidden flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-medium shadow-sm">
+        <i class="fas fa-file-pdf"></i> Adicionar por PDF
+      </button>
+      <input type="file" id="pdfInput" accept="application/pdf" class="hidden" onchange="handlePdfUpload(event)" />
+    </div>
+
+    <!-- Kit list -->
+    <div id="kitList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <!-- filled by JS -->
+    </div>
+  </div>
+
+  <!-- ========== WORKSPACE (montagem) ========== -->
+  <main id="workspaceView" class="max-w-6xl mx-auto px-4 py-6 hidden">
+    <!-- Progress -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+        <h2 class="text-lg font-semibold flex items-center gap-2">
+          <i class="fas fa-tasks text-blue-600"></i> <span id="wsKitName">Progresso</span>
+        </h2>
+        <div class="text-sm text-slate-600">
+          <span id="completedSteps">0</span> de <span id="totalSteps">0</span> etapas concluídas
+        </div>
+      </div>
+      <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+        <div id="progressBar" class="progress-bar bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full" style="width: 0%"></div>
+      </div>
+      <p id="progressText" class="text-sm text-slate-500 mt-2">0% concluído</p>
+    </div>
+
+    <!-- 1. Conferência da Caixa -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold flex items-center gap-2">
+          <span class="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded">1</span>
+          <i class="fas fa-box-open text-amber-600"></i> Conferência da Caixa
+        </h2>
+        <span class="text-sm text-slate-500"><span id="separatedCount">0</span> / <span id="totalRunnersBox">0</span> conferidos</span>
+      </div>
+      <p class="text-sm text-slate-500 mb-4">Marque os runners conforme identifica na caixa (apenas uma vez).</p>
+      <div id="allRunners" class="flex flex-wrap gap-2"></div>
+      <div class="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
+        <div class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-green-100 border border-green-500"></span> Conferido</div>
+        <div class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-slate-100 border border-slate-300"></span> Pendente</div>
+      </div>
+    </div>
+
+    <!-- 2. Montagem -->
+    <div class="mb-2">
+      <h2 class="text-lg font-semibold flex items-center gap-2">
+        <span class="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">2</span>
+        <i class="fas fa-tools text-blue-600"></i> Montagem por Partes
+      </h2>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="lg:col-span-1 space-y-2" id="sectionsList"></div>
+      <div class="lg:col-span-2">
+        <div id="sectionDetail" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 min-h-[420px]">
+          <div class="text-center text-slate-400 py-20">
+            <i class="fas fa-hand-pointer text-4xl mb-3"></i>
+            <p>Selecione uma seção para começar</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Focus Mode -->
+  <div id="focusView" class="fixed inset-0 bg-slate-900 text-white z-50 overflow-auto">
+    <div class="max-w-3xl mx-auto px-4 py-8">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-2xl font-bold" id="focusTitle">Modo Foco</h2>
+        <button onclick="toggleFocusMode()" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg">
+          <i class="fas fa-times"></i> Sair
+        </button>
+      </div>
+      <div id="focusContent" class="bg-slate-800 rounded-2xl p-6"></div>
+      <div class="mt-6 flex justify-between gap-3">
+        <button onclick="prevStep(); renderFocus();" class="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl">
+          <i class="fas fa-arrow-left"></i> Anterior
+        </button>
+        <button onclick="toggleStepCompleted(currentSectionId, currentStepIndex); renderFocus();" id="focusToggleBtn" class="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-medium">
+          Concluir etapa
+        </button>
+        <button onclick="nextStep(); renderFocus();" class="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-xl">
+          Próxima <i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual / Edit Creator Modal -->
+  <div id="creatorModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold" id="creatorTitle">Criar Kit Manualmente</h2>
+        <button onclick="closeManualCreator()" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times text-xl"></i></button>
+      </div>
+
+      <div class="mb-5">
+        <label class="block text-sm font-medium mb-1">Nome do Kit</label>
+        <input id="newKitName" type="text" placeholder="Ex: MG Unicorn Gundam" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+
+      <!-- Fase 1 -->
+      <div class="mb-5 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+        <label class="block text-sm font-medium mb-1 flex items-center gap-2">
+          <span class="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded">1</span>
+          Runners do kit
+        </label>
+        <p class="text-xs text-slate-500 mb-3">Clique várias vezes para ×2, ×3… Use +/− na lista para ajustar.</p>
+        <div class="mb-2 text-xs text-slate-500">Letras</div>
+        <div class="flex flex-wrap gap-1.5 mb-2" id="kitRunnerAlphabet"></div>
+        <div class="mb-2 text-xs text-slate-500">Especiais</div>
+        <div class="flex flex-wrap gap-1.5 mb-3" id="kitRunnerSpecials"></div>
+        <div class="flex gap-2 mb-3">
+          <input id="kitCustomRunner" type="text" placeholder="Ex: A2, M1, ZX, B×2..." class="flex-1 border rounded-lg px-3 py-1.5 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button onclick="addKitCustomRunner()" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-sm">+</button>
+        </div>
+        <div>
+          <span class="text-xs text-slate-500">Runners (<span id="kitRunnerCount">0</span>):</span>
+          <div id="kitRunnersList" class="flex flex-wrap gap-1.5 mt-1 min-h-[32px]"></div>
+        </div>
+      </div>
+
+      <!-- Fase 2 -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium mb-2 flex items-center gap-2">
+          <span class="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">2</span>
+          Dividir em partes
+        </label>
+        <div class="flex flex-wrap gap-2 mb-2" id="presetSections"></div>
+        <div class="flex gap-2">
+          <input id="customSectionName" type="text" placeholder="Nome personalizado..." class="flex-1 border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <button onclick="addCustomSection()" class="bg-slate-700 hover:bg-slate-800 text-white px-4 py-1.5 rounded-lg text-sm">Adicionar</button>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Seção atual: <strong id="currentSectionLabel" class="text-blue-600">Nenhuma</strong></p>
+      </div>
+
+      <div class="mb-4 p-4 bg-slate-50 rounded-xl border">
+        <label class="block text-sm font-medium mb-2">Adicionar etapa</label>
+        <div class="mb-3">
+          <span class="text-xs text-slate-500">Página <span class="text-slate-400">(opcional)</span></span>
+          <input id="stepPage" type="text" placeholder="Ex: 04" class="block w-28 border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div class="mb-2 text-xs text-slate-500">Runners desta etapa</div>
+        <div id="stepRunnerPicker" class="flex flex-wrap gap-1.5 mb-3 min-h-[36px]"></div>
+        <div class="mb-3">
+          <span class="text-xs text-slate-500">Selecionados:</span>
+          <div id="selectedRunnersPreview" class="flex flex-wrap gap-1.5 mt-1 min-h-[28px]"></div>
+        </div>
+        <button onclick="addStepToSection()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium">
+          <i class="fas fa-plus mr-1"></i> Adicionar etapa
+        </button>
+      </div>
+
+      <div class="mb-5">
+        <label class="block text-sm font-medium mb-2">Pré-visualização</label>
+        <div id="kitPreview" class="bg-slate-50 border rounded-xl p-4 min-h-[80px] text-sm space-y-3">
+          <p class="text-slate-400 text-center">Adicione runners e seções</p>
+        </div>
+      </div>
+
+      <div class="flex gap-3">
+        <button onclick="saveKitFromBuilder()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-medium">
+          <i class="fas fa-check mr-1"></i> <span id="saveKitBtnLabel">Criar Kit</span>
+        </button>
+        <button onclick="closeManualCreator()" class="px-5 py-2.5 rounded-lg border hover:bg-slate-50">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF Modal -->
+  <div id="pdfModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6">
+      <h2 class="text-xl font-bold mb-3"><i class="fas fa-file-pdf text-red-500 mr-2"></i>Importar PDF</h2>
+      <p id="pdfFileName" class="text-slate-600 mb-3"></p>
+
+      <div id="pdfStatus" class="mb-4">
+        <div class="flex items-center gap-2 text-sm text-slate-600 mb-2">
+          <i class="fas fa-spinner fa-spin" id="pdfSpinner"></i>
+          <span id="pdfStatusText">Processando PDF…</span>
+        </div>
+        <div class="w-full bg-slate-200 rounded-full h-2">
+          <div id="pdfProgressBar" class="bg-red-500 h-2 rounded-full transition-all" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div id="pdfResult" class="hidden mb-4">
+        <div class="bg-slate-50 border rounded-lg p-3 text-sm space-y-1 mb-3">
+          <div><strong>Runners encontrados:</strong> <span id="pdfFoundRunners">—</span></div>
+          <div><strong>Etapas detectadas:</strong> <span id="pdfFoundSteps">—</span></div>
+          <div><strong>Páginas lidas:</strong> <span id="pdfFoundPages">—</span></div>
+          <div id="pdfWarning" class="text-amber-600 text-xs mt-1 hidden"></div>
+        </div>
+        <div class="mb-3">
+          <label class="block text-sm font-medium mb-1">Nome do kit</label>
+          <input id="pdfKitName" type="text" placeholder="Nome do Gunpla" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500" />
+        </div>
+      </div>
+
+      <div class="flex gap-3">
+        <button id="pdfCreateBtn" onclick="createPdfKit()" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-medium disabled:opacity-40" disabled>
+          Criar e revisar no editor
+        </button>
+        <button onclick="closePdfModal()" class="px-5 py-2.5 rounded-lg border hover:bg-slate-50">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="text-center text-slate-400 text-sm py-6">
+    Gunpla Helper – Protótipo v3
+  </footer>
+
+  <script>
+    // ==================== DATA ====================
+    const defaultKits = {
+      "mk2-titans": {
+        name: "PG RX-178 Gundam Mk-II (Titans)",
+        source: "default",
+        kitRunners: ["A","B×2","C","D","E","F","G×2","H","I","J","K×2","L","M","N","O","P","Q×2","R×2","S×2","T×2","U","DC","Z"],
+        sections: [
+          { id: "bracos", name: "Braços", icon: "fa-hand", steps: [
+            { page: "04", runners: ["A","D","E","H","K×2","L","N","Q×2","S×2"] },
+            { page: "05", runners: ["G×2","H","I","K×2","N","Q×2","R×2","S×2"] },
+            { page: "06", runners: ["C","G×2","H","I","N"] }
+          ]},
+          { id: "pernas", name: "Pernas + Pés", icon: "fa-shoe-prints", steps: [
+            { page: "07", runners: ["D","E","L","Q×2","S×2"] },
+            { page: "08", runners: ["A","B×2","D","E","K×2","M","Q×2","S×2","U"] },
+            { page: "09", runners: ["A","D","E","K×2","L","M","Q×2","R×2","S×2","T×2"] },
+            { page: "10", runners: ["G×2","H","I","K×2","L","Q×2","R×2","S×2","T×2"] },
+            { page: "11", runners: ["G×2","H","I","R×2","T×2"] },
+            { page: "12", runners: ["B×2","E","G×2","K×2","L","Q×2","R×2","S×2","T×2"] },
+            { page: "13", runners: ["A","G×2","H","I","L","O","P","S×2"] }
+          ]},
+          { id: "torso", name: "Torso + Cabeça", icon: "fa-user", steps: [
+            { page: "13-14", runners: ["A","C","D","E","J","K×2","L","M","N","Q×2","S×2"] },
+            { page: "15", runners: ["D","E","L","M","O","P","S×2"] },
+            { page: "16", runners: ["A","C","H","L","Q×2"] }
+          ]},
+          { id: "backpack", name: "Backpack", icon: "fa-briefcase", steps: [
+            { page: "17", runners: ["A","N","O","R×2","S×2","U"] },
+            { page: "18", runners: ["N","O","R×2"] }
+          ]},
+          { id: "cintura", name: "Cintura", icon: "fa-circle", steps: [
+            { page: "19", runners: ["A","C","F","K×2","L","M","N","O","P","Q×2","S×2","DC"] }
+          ]},
+          { id: "armas", name: "Armas", icon: "fa-crosshairs", steps: [
+            { page: "19-20", runners: ["J","M","P","Q×2","R×2","S×2","U"] },
+            { page: "21", runners: ["A","J","M","N","O","P","S×2"] },
+            { page: "22", runners: ["A","C","J"] },
+            { page: "23", runners: ["C","G×2","I","M","N","S×2","Z"] },
+            { page: "24", runners: ["M"] }
+          ]}
+        ]
+      }
+    };
+
+    // ==================== STATE ====================
+    let kits = {};
+    let currentKitId = null;
+    let currentSectionId = null;
+    let currentStepIndex = 0;
+    let boxChecked = new Set();
+    let separatedRunners = new Set();
+    let completedSteps = {};
+    let focusMode = false;
+    let currentView = "home"; // home | workspace
+    let editingKitId = null; // null = creating new
+    let pendingPdfName = "";
+
+    // Builder
+    let builderKitRunners = new Set();
+    let builderSections = [];
+    let builderCurrentSecId = null;
+    let builderSelectedRunners = new Set();
+
+    const PRESET_SECTIONS = [
+      { name: "Braços", icon: "fa-hand" },
+      { name: "Pernas + Pés", icon: "fa-shoe-prints" },
+      { name: "Torso + Cabeça", icon: "fa-user" },
+      { name: "Cintura", icon: "fa-circle" },
+      { name: "Backpack", icon: "fa-briefcase" },
+      { name: "Armas", icon: "fa-crosshairs" },
+      { name: "Escudo", icon: "fa-shield-alt" },
+      { name: "Cabeça", icon: "fa-hard-hat" },
+      { name: "Outros", icon: "fa-cube" }
+    ];
+    const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+    const SPECIAL_RUNNERS = ["A1","A2","B1","B2","M1","M2","O1","O2","DC","PC","SB","ZX","Z","SA","PC-1","PC-2"];
+
+    // ==================== HELPERS ====================
+    function parseRunner(str) {
+      const s = String(str).trim();
+      const m = s.match(/^(.+?)\s*[×xX]\s*(\d+)$/);
+      if (m) return { name: m[1].trim(), qty: parseInt(m[2], 10) || 1 };
+      return { name: s, qty: 1 };
+    }
+    function formatRunner(name, qty) {
+      return qty > 1 ? `${name}×${qty}` : name;
+    }
+    function runnerSortKey(str) { return parseRunner(str).name; }
+    function displayRunner(str) {
+      const { name, qty } = parseRunner(str);
+      return qty > 1 ? `${name}<span class="text-[10px] ml-0.5 font-bold opacity-80">×${qty}</span>` : name;
+    }
+    // Resolve step runner to include kit qty if available
+    function resolveRunnerDisplay(runnerStr) {
+      const kit = getKit();
+      if (!kit) return displayRunner(runnerStr);
+      const base = parseRunner(runnerStr).name;
+      if (kit.kitRunners) {
+        for (const kr of kit.kitRunners) {
+          if (parseRunner(kr).name === base) return displayRunner(kr);
+        }
+      }
+      return displayRunner(runnerStr);
+    }
+    function resolveRunnerKey(runnerStr) {
+      // Prefer full kit runner string (with ×N) for consistency
+      const kit = getKit();
+      const base = parseRunner(runnerStr).name;
+      if (kit && kit.kitRunners) {
+        for (const kr of kit.kitRunners) {
+          if (parseRunner(kr).name === base) return kr;
+        }
+      }
+      return runnerStr;
+    }
+
+    function getKit() { return currentKitId ? kits[currentKitId] : null; }
+
+    function getAllRunners() {
+      const kit = getKit();
+      if (!kit) return [];
+      if (kit.kitRunners && kit.kitRunners.length) {
+        return [...kit.kitRunners].sort((a,b) => runnerSortKey(a).localeCompare(runnerSortKey(b), undefined, {numeric:true}));
+      }
+      const set = new Set();
+      kit.sections.forEach(sec => sec.steps.forEach(st => st.runners.forEach(r => set.add(r))));
+      return Array.from(set).sort((a,b) => runnerSortKey(a).localeCompare(runnerSortKey(b), undefined, {numeric:true}));
+    }
+
+    function getRunnersForSection(secId) {
+      const sec = getKit()?.sections.find(s => s.id === secId);
+      const set = new Set();
+      if (sec) sec.steps.forEach(st => st.runners.forEach(r => set.add(resolveRunnerKey(r))));
+      return set;
+    }
+
+    function getNeededFromStep(secId, fromIdx) {
+      const sec = getKit()?.sections.find(s => s.id === secId);
+      const set = new Set();
+      if (sec) for (let i = fromIdx; i < sec.steps.length; i++)
+        sec.steps[i].runners.forEach(r => set.add(resolveRunnerKey(r)));
+      return set;
+    }
+
+    function stepKey(secId, idx) { return `${currentKitId}:${secId}-${idx}`; }
+    function isStepCompleted(secId, idx) { return !!completedSteps[stepKey(secId, idx)]; }
+
+    function countCompletedSteps() {
+      const kit = getKit();
+      if (!kit) return { total: 0, done: 0 };
+      let total = 0, done = 0;
+      kit.sections.forEach(sec => sec.steps.forEach((_, idx) => {
+        total++;
+        if (isStepCompleted(sec.id, idx)) done++;
+      }));
+      return { total, done };
+    }
+
+    function sourceBadge(source) {
+      if (source === "pdf") return '<span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full"><i class="fas fa-file-pdf mr-1"></i>PDF</span>';
+      if (source === "manual") return '<span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full"><i class="fas fa-keyboard mr-1"></i>Manual</span>';
+      return '<span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full"><i class="fas fa-star mr-1"></i>Padrão</span>';
+    }
+
+    // ==================== PERSISTENCE ====================
+    function loadState() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("gunpla-helper-v3") || "{}");
+        kits = { ...JSON.parse(JSON.stringify(defaultKits)), ...(saved.customKits || {}) };
+        // ensure default has source
+        Object.keys(defaultKits).forEach(id => {
+          if (!kits[id].source) kits[id].source = "default";
+        });
+        if (saved.boxChecked) boxChecked = new Set(saved.boxChecked);
+        if (saved.separated) separatedRunners = new Set(saved.separated);
+        if (saved.completedSteps) completedSteps = saved.completedSteps;
+      } catch(e) {
+        kits = JSON.parse(JSON.stringify(defaultKits));
+      }
+    }
+
+    function exportKit(id) {
+      const kit = kits[id];
+      if (!kit) return;
+      const blob = new Blob([JSON.stringify(kit, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = (kit.id || id) + ".json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function importKitFile(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      ev.target.value = "";
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const obj = JSON.parse(reader.result);
+          const kit = obj.kitRunners ? obj : (obj.customKits ? Object.values(obj.customKits)[0] : null);
+          if (!kit || !kit.name) throw new Error("JSON inválido");
+          const id = kit.id || ("imp-" + Date.now());
+          kit.id = id;
+          kit.source = kit.source || "manual";
+          kit.sections = kit.sections || [];
+          kit.kitRunners = kit.kitRunners || [];
+          kits[id] = kit;
+          saveState();
+          renderKitList();
+        } catch (e) {
+          alert("Não foi possível importar: " + e.message);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function saveState() {
+      const customKits = {};
+      Object.keys(kits).forEach(id => {
+        if (kits[id].source !== "default") customKits[id] = kits[id];
+      });
+      localStorage.setItem("gunpla-helper-v3", JSON.stringify({
+        customKits,
+        boxChecked: Array.from(boxChecked),
+        separated: Array.from(separatedRunners),
+        completedSteps
+      }));
+    }
+
+    // ==================== VIEWS ====================
+    function showHome() {
+      currentView = "home";
+      currentKitId = null;
+      currentSectionId = null;
+      document.getElementById("homeView").classList.remove("hidden");
+      document.getElementById("workspaceView").classList.add("hidden");
+      renderHeader();
+      renderKitList();
+    }
+
+    function openKit(id) {
+      currentKitId = id;
+      currentSectionId = null;
+      currentStepIndex = 0;
+      currentView = "workspace";
+      document.getElementById("homeView").classList.add("hidden");
+      document.getElementById("workspaceView").classList.remove("hidden");
+      document.getElementById("wsKitName").textContent = kits[id].name;
+      renderHeader();
+      renderWorkspace();
+    }
+
+    function renderHeader() {
+      const el = document.getElementById("headerActions");
+      if (currentView === "home") {
+        el.innerHTML = `
+          <button onclick="openManualCreator()" class="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-sm">
+            <i class="fas fa-plus"></i> Novo
+          </button>`;
+      } else {
+        el.innerHTML = `
+          <button onclick="showHome()" class="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-sm">
+            <i class="fas fa-home"></i> Menu
+          </button>
+          <button onclick="toggleFocusMode()" class="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-sm">
+            <i class="fas fa-expand"></i> Foco
+          </button>
+          <button onclick="editKit('${currentKitId}')" class="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-sm">
+            <i class="fas fa-edit"></i> Editar
+          </button>
+          <button onclick="resetProgress()" class="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-sm">
+            <i class="fas fa-trash-alt"></i>
+          </button>`;
+      }
+    }
+
+    function renderKitList() {
+      const container = document.getElementById("kitList");
+      const ids = Object.keys(kits);
+      if (ids.length === 0) {
+        container.innerHTML = '<p class="col-span-full text-center text-slate-400 py-10">Nenhum kit ainda. Adicione um acima!</p>';
+        return;
+      }
+      container.innerHTML = ids.map(id => {
+        const kit = kits[id];
+        const totalSteps = kit.sections.reduce((a,s) => a + s.steps.length, 0);
+        let done = 0;
+        kit.sections.forEach(sec => sec.steps.forEach((_, idx) => {
+          if (completedSteps[`${id}:${sec.id}-${idx}`]) done++;
+        }));
+        const pct = totalSteps ? Math.round((done/totalSteps)*100) : 0;
+        const runnerCount = (kit.kitRunners || []).length;
+
+        return `
+          <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition flex flex-col">
+            <div class="flex items-start justify-between mb-2">
+              <h3 class="font-semibold text-lg leading-tight pr-2">${kit.name}</h3>
+              ${sourceBadge(kit.source || "default")}
+            </div>
+            <div class="text-xs text-slate-500 mb-3">
+              ${runnerCount} runners • ${kit.sections.length} partes • ${totalSteps} etapas
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-1.5 mb-1">
+              <div class="bg-blue-500 h-1.5 rounded-full" style="width:${pct}%"></div>
+            </div>
+            <div class="text-xs text-slate-500 mb-4">${pct}% montado</div>
+            <div class="mt-auto flex gap-2">
+              <button onclick="openKit('${id}')" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium">
+                <i class="fas fa-play mr-1"></i> Abrir
+              </button>
+              <button onclick="exportKit('${id}')" class="px-3 py-2 rounded-lg border hover:bg-slate-50 text-sm" title="Exportar JSON">
+                <i class="fas fa-download"></i>
+              </button>
+              <button onclick="editKit('${id}')" class="px-3 py-2 rounded-lg border hover:bg-slate-50 text-sm" title="Editar">
+                <i class="fas fa-edit"></i>
+              </button>
+              ${kit.source !== "default" ? `
+              <button onclick="deleteKit('${id}')" class="px-3 py-2 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 text-sm" title="Excluir">
+                <i class="fas fa-trash"></i>
+              </button>` : ""}
+            </div>
+          </div>`;
+      }).join("");
+    }
+
+    // ==================== WORKSPACE RENDER ====================
+    function renderWorkspace() {
+      renderSections();
+      renderSectionDetail();
+      renderAllRunners();
+    }
+
+    function renderSections() {
+      const container = document.getElementById("sectionsList");
+      const kit = getKit();
+      if (!kit) return;
+      container.innerHTML = "";
+      kit.sections.forEach(sec => {
+        const total = sec.steps.length;
+        const done = sec.steps.filter((_,i) => isStepCompleted(sec.id, i)).length;
+        const pct = total ? Math.round((done/total)*100) : 0;
+        const active = currentSectionId === sec.id;
+        const card = document.createElement("div");
+        card.className = `section-card cursor-pointer rounded-lg border p-4 ${active ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white hover:border-blue-300"}`;
+        card.onclick = () => selectSection(sec.id);
+        card.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg ${active?"bg-blue-600 text-white":"bg-slate-100 text-slate-600"} flex items-center justify-center">
+                <i class="fas ${sec.icon || "fa-cube"}"></i>
+              </div>
+              <div>
+                <div class="font-medium">${sec.name}</div>
+                <div class="text-xs text-slate-500">${done}/${total} etapas</div>
+              </div>
+            </div>
+            <div class="text-sm font-semibold ${pct===100?"text-green-600":"text-slate-700"}">${pct}%</div>
+          </div>
+          <div class="mt-2 w-full bg-slate-200 rounded-full h-1.5">
+            <div class="bg-blue-500 h-1.5 rounded-full progress-bar" style="width:${pct}%"></div>
+          </div>`;
+        container.appendChild(card);
+      });
+    }
+
+    function chipHtml(runnerKey, onClick, extraCls = "") {
+      const sep = separatedRunners.has(runnerKey);
+      let cls = "runner-chip inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium border cursor-pointer ";
+      if (sep) cls += "separated ";
+      else cls += extraCls || "needed ";
+      return `<span class="${cls}" onclick="${onClick}">${displayRunner(runnerKey)}</span>`;
+    }
+
+    function renderSectionDetail() {
+      const container = document.getElementById("sectionDetail");
+      if (!currentSectionId) {
+        container.innerHTML = `<div class="text-center text-slate-400 py-20">
+          <i class="fas fa-hand-pointer text-4xl mb-3"></i>
+          <p>Selecione uma seção ao lado</p>
+        </div>`;
+        return;
+      }
+      const section = getKit().sections.find(s => s.id === currentSectionId);
+      const neededNow = getNeededFromStep(currentSectionId, currentStepIndex);
+      const allInSec = getRunnersForSection(currentSectionId);
+      const canPutAway = Array.from(allInSec).filter(r => !neededNow.has(r));
+
+      const stepsHtml = section.steps.map((step, idx) => {
+        const isCurrent = idx === currentStepIndex;
+        const isDone = isStepCompleted(currentSectionId, idx);
+        const runnersHtml = step.runners.map(r => {
+          const key = resolveRunnerKey(r);
+          const sep = separatedRunners.has(key);
+          let cls = "runner-chip inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium border cursor-pointer ";
+          if (sep) cls += "separated ";
+          else if (isCurrent || idx >= currentStepIndex) cls += "needed ";
+          else cls += "not-needed ";
+          return `<span class="${cls}" onclick="toggleSeparated('${key}')">${displayRunner(key)}</span>`;
+        }).join(" ");
+
+        return `
+          <div class="mb-3 rounded-lg border p-4 ${isCurrent ? "current-step border-blue-300" : isDone ? "border-green-200 bg-green-50/50" : "border-slate-200"}">
+            <div class="flex items-center justify-between mb-2">
+              <div class="font-medium flex items-center gap-2">
+                ${isDone ? '<i class="fas fa-check-circle text-green-500"></i>' : ''}
+                ${isCurrent ? '<span class="bg-blue-600 text-white text-xs px-2 py-0.5 rounded">ATUAL</span>' : ''}
+                ${step.page && step.page !== "—" ? "Página " + step.page : "Etapa " + (idx + 1)}
+              </div>
+              <div class="flex gap-2">
+                ${isCurrent ? `
+                  <button onclick="prevStep()" class="text-sm px-2.5 py-1 rounded bg-slate-200 hover:bg-slate-300" ${idx===0?"disabled":""}><i class="fas fa-arrow-left"></i></button>
+                  <button onclick="toggleStepCompleted('${currentSectionId}', ${idx})" class="text-sm px-3 py-1 rounded ${isDone ? "bg-green-600 hover:bg-green-700" : "bg-blue-600 hover:bg-blue-700"} text-white">
+                    ${isDone ? '<i class="fas fa-check-circle"></i> Concluída (desmarcar)' : 'Concluir <i class="fas fa-check"></i>'}
+                  </button>
+                  <button onclick="nextStep()" class="text-sm px-2.5 py-1 rounded bg-slate-200 hover:bg-slate-300" ${idx >= section.steps.length-1 ? "disabled" : ""}><i class="fas fa-arrow-right"></i></button>
+                ` : `
+                  <button onclick="goToStep(${idx})" class="text-xs text-blue-600 hover:underline">Ir para</button>
+                  <button onclick="toggleStepCompleted('${currentSectionId}', ${idx})" class="text-xs ${isDone?"text-green-600":"text-slate-500"} hover:underline">
+                    ${isDone ? "Desmarcar" : "Marcar concluída"}
+                  </button>
+                `}
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1.5">${runnersHtml}</div>
+          </div>`;
+      }).join("");
+
+      container.innerHTML = `
+        <div class="flex items-center justify-between mb-5">
+          <h2 class="text-xl font-bold flex items-center gap-2">
+            <i class="fas ${section.icon || "fa-cube"} text-blue-600"></i> ${section.name}
+          </h2>
+          <div class="text-sm text-slate-500">Etapa ${currentStepIndex+1} / ${section.steps.length}</div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div class="text-sm font-medium text-blue-800 mb-2"><i class="fas fa-exclamation-circle mr-1"></i> Ainda necessários</div>
+            <div class="flex flex-wrap gap-1.5">
+              ${Array.from(neededNow).sort((a,b)=>runnerSortKey(a).localeCompare(runnerSortKey(b))).map(r => {
+                const sep = separatedRunners.has(r);
+                return `<span class="runner-chip inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium border cursor-pointer ${sep?"separated":"needed"}" onclick="toggleSeparated('${r}')">${displayRunner(r)}</span>`;
+              }).join("") || '<span class="text-slate-400 text-sm">Nenhum</span>'}
+            </div>
+          </div>
+          <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+            <div class="text-sm font-medium text-slate-600 mb-2"><i class="fas fa-box-open mr-1"></i> Já pode guardar</div>
+            <div class="flex flex-wrap gap-1.5">
+              ${canPutAway.sort((a,b)=>runnerSortKey(a).localeCompare(runnerSortKey(b))).map(r => {
+                const sep = separatedRunners.has(r);
+                return `<span class="runner-chip inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium border cursor-pointer ${sep?"separated":"not-needed"}" onclick="toggleSeparated('${r}')">${displayRunner(r)}</span>`;
+              }).join("") || '<span class="text-slate-400 text-sm">Nenhum ainda</span>'}
+            </div>
+          </div>
+        </div>
+        <h3 class="font-semibold mb-3 text-slate-700">Etapas</h3>
+        ${stepsHtml}`;
+    }
+
+    function renderAllRunners() {
+      const container = document.getElementById("allRunners");
+      const all = getAllRunners();
+      container.innerHTML = all.map(r => {
+        const checked = boxChecked.has(r);
+        let cls = "runner-chip inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold border cursor-pointer ";
+        cls += checked ? "separated" : "not-needed";
+        return `<span class="${cls}" onclick="toggleBoxChecked('${r}')">${displayRunner(r)}</span>`;
+      }).join("");
+      document.getElementById("separatedCount").textContent = boxChecked.size;
+      document.getElementById("totalRunnersBox").textContent = all.length;
+
+      const { total, done } = countCompletedSteps();
+      const pct = total ? Math.round((done/total)*100) : 0;
+      document.getElementById("completedSteps").textContent = done;
+      document.getElementById("totalSteps").textContent = total;
+      document.getElementById("progressBar").style.width = pct + "%";
+      document.getElementById("progressText").textContent = pct + "% concluído";
+    }
+
+    // ==================== ACTIONS ====================
+    function selectSection(id) {
+      currentSectionId = id;
+      currentStepIndex = 0;
+      renderWorkspace();
+    }
+    function goToStep(idx) { currentStepIndex = idx; renderWorkspace(); }
+    function nextStep() {
+      const sec = getKit()?.sections.find(s => s.id === currentSectionId);
+      if (sec && currentStepIndex < sec.steps.length - 1) { currentStepIndex++; renderWorkspace(); }
+    }
+    function prevStep() {
+      if (currentStepIndex > 0) { currentStepIndex--; renderWorkspace(); }
+    }
+    function toggleStepCompleted(secId, idx) {
+      const key = stepKey(secId, idx);
+      if (completedSteps[key]) delete completedSteps[key];
+      else completedSteps[key] = true;
+      saveState();
+      renderWorkspace();
+    }
+    function toggleSeparated(runner) {
+      if (separatedRunners.has(runner)) separatedRunners.delete(runner);
+      else separatedRunners.add(runner);
+      saveState();
+      renderWorkspace();
+    }
+    function toggleBoxChecked(runner) {
+      if (boxChecked.has(runner)) boxChecked.delete(runner);
+      else boxChecked.add(runner);
+      saveState();
+      renderAllRunners();
+    }
+    function resetProgress() {
+      if (!confirm("Apagar conferência, runners separados e etapas deste kit?")) return;
+      // clear only this kit's completed steps
+      Object.keys(completedSteps).forEach(k => {
+        if (k.startsWith(currentKitId + ":")) delete completedSteps[k];
+      });
+      boxChecked.clear();
+      separatedRunners.clear();
+      saveState();
+      currentSectionId = null;
+      currentStepIndex = 0;
+      renderWorkspace();
+    }
+    function deleteKit(id) {
+      if (kits[id]?.source === "default") return;
+      if (!confirm("Excluir este kit permanentemente?")) return;
+      delete kits[id];
+      Object.keys(completedSteps).forEach(k => { if (k.startsWith(id + ":")) delete completedSteps[k]; });
+      saveState();
+      if (currentKitId === id) showHome();
+      else renderKitList();
+    }
+
+    function toggleFocusMode() {
+      if (currentView !== "workspace") return;
+      focusMode = !focusMode;
+      document.body.classList.toggle("focus-mode", focusMode);
+      if (focusMode) renderFocus();
+    }
+
+    function renderFocus() {
+      if (!currentSectionId) {
+        document.getElementById("focusContent").innerHTML = "<p class='text-slate-400'>Selecione uma seção primeiro.</p>";
+        return;
+      }
+      const section = getKit().sections.find(s => s.id === currentSectionId);
+      const step = section.steps[currentStepIndex];
+      const isDone = isStepCompleted(currentSectionId, currentStepIndex);
+      document.getElementById("focusTitle").textContent = `${section.name} – ${step.page && step.page !== "—" ? "Página " + step.page : "Etapa " + (currentStepIndex + 1)}`;
+
+      const runnersHtml = step.runners.map(r => {
+        const key = resolveRunnerKey(r);
+        const sep = separatedRunners.has(key);
+        return `<span class="inline-flex items-center px-4 py-2 rounded-xl text-lg font-bold border-2 m-1 ${sep ? "bg-green-500/20 border-green-400 text-green-300" : "bg-blue-500/20 border-blue-400 text-blue-200"}" onclick="toggleSeparated('${key}')">${displayRunner(key)}</span>`;
+      }).join("");
+
+      document.getElementById("focusContent").innerHTML = `
+        <div class="text-center mb-6">
+          <div class="text-slate-400 text-sm mb-1">Etapa ${currentStepIndex+1} de ${section.steps.length}</div>
+          <div class="text-3xl font-bold mb-4">${step.page && step.page !== "—" ? "Página " + step.page : "Etapa " + (currentStepIndex + 1)}</div>
+          <div class="flex flex-wrap justify-center gap-2">${runnersHtml}</div>
+        </div>`;
+
+      const btn = document.getElementById("focusToggleBtn");
+      if (btn) {
+        if (isDone) {
+          btn.innerHTML = '<i class="fas fa-check-circle"></i> Concluída (desmarcar)';
+          btn.className = "bg-green-600 hover:bg-green-500 px-5 py-3 rounded-xl font-medium";
+        } else {
+          btn.innerHTML = "Concluir etapa";
+          btn.className = "bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-medium";
+        }
+      }
+    }
+
+    // ==================== CREATOR / EDITOR ====================
+    function openManualCreator() {
+      editingKitId = null;
+      document.getElementById("creatorTitle").textContent = "Criar Kit Manualmente";
+      document.getElementById("saveKitBtnLabel").textContent = "Criar Kit";
+      resetBuilder();
+      document.getElementById("creatorModal").classList.remove("hidden");
+    }
+
+    function editKit(id) {
+      const kit = kits[id];
+      if (!kit) return;
+      editingKitId = id;
+      document.getElementById("creatorTitle").textContent = "Editar Kit";
+      document.getElementById("saveKitBtnLabel").textContent = "Salvar alterações";
+      resetBuilder();
+      document.getElementById("newKitName").value = kit.name;
+      // load runners
+      (kit.kitRunners || []).forEach(r => builderKitRunners.add(r));
+      // load sections
+      builderSections = kit.sections.map(s => ({
+        id: s.id + "-" + Date.now(),
+        name: s.name,
+        icon: s.icon || "fa-cube",
+        steps: s.steps.map(st => ({ page: st.page, runners: [...st.runners] }))
+      }));
+      renderKitRunnerButtons();
+      renderKitRunnersList();
+      renderPresetSections();
+      renderStepRunnerPicker();
+      renderSelectedRunners();
+      renderKitPreview();
+      document.getElementById("creatorModal").classList.remove("hidden");
+    }
+
+    function closeManualCreator() {
+      document.getElementById("creatorModal").classList.add("hidden");
+      editingKitId = null;
+    }
+
+    function resetBuilder() {
+      builderKitRunners = new Set();
+      builderSections = [];
+      builderCurrentSecId = null;
+      builderSelectedRunners = new Set();
+      document.getElementById("newKitName").value = "";
+      document.getElementById("stepPage").value = "";
+      document.getElementById("customSectionName").value = "";
+      document.getElementById("kitCustomRunner").value = "";
+      document.getElementById("currentSectionLabel").textContent = "Nenhuma";
+      renderKitRunnerButtons();
+      renderKitRunnersList();
+      renderPresetSections();
+      renderStepRunnerPicker();
+      renderSelectedRunners();
+      renderKitPreview();
+    }
+
+    function getKitRunnerEntry(name) {
+      for (const r of builderKitRunners) {
+        const p = parseRunner(r);
+        if (p.name === name) return { key: r, ...p };
+      }
+      return null;
+    }
+    function setKitRunnerQty(name, qty) {
+      for (const r of [...builderKitRunners]) {
+        if (parseRunner(r).name === name) builderKitRunners.delete(r);
+      }
+      if (qty >= 1) builderKitRunners.add(formatRunner(name, qty));
+      if (qty < 1) {
+        for (const r of [...builderSelectedRunners]) {
+          if (parseRunner(r).name === name) builderSelectedRunners.delete(r);
+        }
+      }
+    }
+
+    function renderKitRunnerButtons() {
+      document.getElementById("kitRunnerAlphabet").innerHTML = ALPHABET.map(l => {
+        const entry = getKitRunnerEntry(l);
+        const qty = entry ? entry.qty : 0;
+        return `<button onclick="addOrIncKitRunner('${l}')" class="relative w-9 h-9 rounded-lg text-sm font-bold border transition ${entry ? "bg-amber-500 text-white border-amber-500" : "bg-white border-slate-300 hover:border-amber-400"}">
+          ${l}${qty > 1 ? `<span class="absolute -top-1 -right-1 bg-amber-800 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">×${qty}</span>` : ""}
+        </button>`;
+      }).join("");
+      document.getElementById("kitRunnerSpecials").innerHTML = SPECIAL_RUNNERS.map(l => {
+        const entry = getKitRunnerEntry(l);
+        const qty = entry ? entry.qty : 0;
+        return `<button onclick="addOrIncKitRunner('${l}')" class="relative px-2.5 h-9 rounded-lg text-xs font-bold border transition ${entry ? "bg-amber-600 text-white border-amber-600" : "bg-white border-slate-300 hover:border-amber-400"}">
+          ${l}${qty > 1 ? `<span class="ml-0.5 text-[9px]">×${qty}</span>` : ""}
+        </button>`;
+      }).join("");
+    }
+
+    function addOrIncKitRunner(name) {
+      const entry = getKitRunnerEntry(name);
+      setKitRunnerQty(name, entry ? entry.qty + 1 : 1);
+      refreshBuilderUI();
+    }
+    function decKitRunner(name) {
+      const entry = getKitRunnerEntry(name);
+      if (entry) { setKitRunnerQty(name, entry.qty - 1); refreshBuilderUI(); }
+    }
+    function removeKitRunner(name) {
+      setKitRunnerQty(name, 0);
+      refreshBuilderUI();
+    }
+    function addKitCustomRunner() {
+      const val = document.getElementById("kitCustomRunner").value.trim().toUpperCase();
+      if (!val) return;
+      const parsed = parseRunner(val);
+      const entry = getKitRunnerEntry(parsed.name);
+      setKitRunnerQty(parsed.name, entry ? entry.qty + parsed.qty : parsed.qty);
+      document.getElementById("kitCustomRunner").value = "";
+      refreshBuilderUI();
+    }
+    function refreshBuilderUI() {
+      renderKitRunnerButtons();
+      renderKitRunnersList();
+      renderStepRunnerPicker();
+      renderSelectedRunners();
+      renderKitPreview();
+    }
+
+    function renderKitRunnersList() {
+      const container = document.getElementById("kitRunnersList");
+      document.getElementById("kitRunnerCount").textContent = builderKitRunners.size;
+      if (builderKitRunners.size === 0) {
+        container.innerHTML = '<span class="text-slate-400 text-sm">Nenhum</span>';
+        return;
+      }
+      container.innerHTML = Array.from(builderKitRunners)
+        .sort((a,b) => runnerSortKey(a).localeCompare(runnerSortKey(b), undefined, {numeric:true}))
+        .map(r => {
+          const { name, qty } = parseRunner(r);
+          return `<span class="inline-flex items-center gap-1 bg-amber-100 text-amber-900 border border-amber-300 px-2 py-1 rounded-md text-sm font-medium">
+            ${name}${qty > 1 ? `<span class="text-xs font-bold">×${qty}</span>` : ""}
+            <button onclick="addOrIncKitRunner('${name}')" class="text-amber-700 hover:text-amber-900 text-xs font-bold px-1">+</button>
+            <button onclick="decKitRunner('${name}')" class="text-amber-700 hover:text-amber-900 text-xs font-bold px-1">−</button>
+            <button onclick="removeKitRunner('${name}')" class="text-amber-600 hover:text-red-500">&times;</button>
+          </span>`;
+        }).join("");
+    }
+
+    function renderPresetSections() {
+      document.getElementById("presetSections").innerHTML = PRESET_SECTIONS.map(s => {
+        const exists = builderSections.find(bs => bs.name === s.name);
+        const active = builderCurrentSecId && builderSections.find(bs => bs.id === builderCurrentSecId)?.name === s.name;
+        return `<button onclick="selectOrAddSection('${s.name}', '${s.icon}')" class="px-3 py-1.5 rounded-lg text-sm border transition ${active ? "bg-blue-600 text-white border-blue-600" : exists ? "bg-blue-50 border-blue-300 text-blue-700" : "bg-white border-slate-300 hover:border-blue-400"}">
+          <i class="fas ${s.icon} mr-1"></i>${s.name}
+        </button>`;
+      }).join("");
+    }
+
+    function selectOrAddSection(name, icon) {
+      let sec = builderSections.find(s => s.name === name);
+      if (!sec) {
+        sec = { id: name.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"") + "-" + Date.now(), name, icon, steps: [] };
+        builderSections.push(sec);
+      }
+      builderCurrentSecId = sec.id;
+      builderSelectedRunners = new Set();
+      document.getElementById("currentSectionLabel").textContent = name;
+      document.getElementById("stepPage").value = "";
+      renderPresetSections();
+      renderStepRunnerPicker();
+      renderSelectedRunners();
+      renderKitPreview();
+    }
+
+    function addCustomSection() {
+      const name = document.getElementById("customSectionName").value.trim();
+      if (!name) return;
+      selectOrAddSection(name, "fa-cube");
+      document.getElementById("customSectionName").value = "";
+    }
+
+    function renderStepRunnerPicker() {
+      const container = document.getElementById("stepRunnerPicker");
+      if (builderKitRunners.size === 0) {
+        container.innerHTML = '<span class="text-slate-400 text-sm">Adicione runners na etapa 1</span>';
+        return;
+      }
+      // Use full key with ×N for steps too
+      const list = Array.from(builderKitRunners).sort((a,b) => runnerSortKey(a).localeCompare(runnerSortKey(b), undefined, {numeric:true}));
+      container.innerHTML = list.map(r => {
+        const sel = builderSelectedRunners.has(r);
+        return `<button onclick="toggleBuilderRunner('${r}')" class="px-2.5 h-9 rounded-lg text-sm font-bold border transition ${sel ? "bg-blue-600 text-white border-blue-600" : "bg-white border-slate-300 hover:border-blue-400"}">${displayRunner(r)}</button>`;
+      }).join("");
+    }
+
+    function toggleBuilderRunner(r) {
+      if (builderSelectedRunners.has(r)) builderSelectedRunners.delete(r);
+      else builderSelectedRunners.add(r);
+      renderStepRunnerPicker();
+      renderSelectedRunners();
+    }
+
+    function renderSelectedRunners() {
+      const container = document.getElementById("selectedRunnersPreview");
+      if (builderSelectedRunners.size === 0) {
+        container.innerHTML = '<span class="text-slate-400 text-sm">Nenhum</span>';
+        return;
+      }
+      container.innerHTML = Array.from(builderSelectedRunners).map(r =>
+        `<span class="inline-flex items-center gap-1 bg-blue-100 text-blue-800 border border-blue-300 px-2.5 py-1 rounded-md text-sm font-medium">
+          ${displayRunner(r)} <button onclick="toggleBuilderRunner('${r}')" class="text-blue-500 hover:text-red-500">&times;</button>
+        </span>`
+      ).join("");
+    }
+
+    function addStepToSection() {
+      if (!builderCurrentSecId) { alert("Escolha uma seção primeiro."); return; }
+      if (builderKitRunners.size === 0) { alert("Adicione runners na etapa 1."); return; }
+      if (builderSelectedRunners.size === 0) { alert("Selecione pelo menos um runner."); return; }
+      const page = document.getElementById("stepPage").value.trim() || "—";
+      const sec = builderSections.find(s => s.id === builderCurrentSecId);
+      sec.steps.push({ page, runners: Array.from(builderSelectedRunners) });
+      builderSelectedRunners = new Set();
+      document.getElementById("stepPage").value = "";
+      renderStepRunnerPicker();
+      renderSelectedRunners();
+      renderKitPreview();
+    }
+
+    function removeStep(secId, stepIdx) {
+      const sec = builderSections.find(s => s.id === secId);
+      if (!sec) return;
+      sec.steps.splice(stepIdx, 1);
+      if (sec.steps.length === 0) {
+        builderSections = builderSections.filter(s => s.id !== secId);
+        if (builderCurrentSecId === secId) {
+          builderCurrentSecId = null;
+          document.getElementById("currentSectionLabel").textContent = "Nenhuma";
+        }
+      }
+      renderPresetSections();
+      renderKitPreview();
+    }
+
+    function renderKitPreview() {
+      const container = document.getElementById("kitPreview");
+      let html = "";
+      if (builderKitRunners.size > 0) {
+        const list = Array.from(builderKitRunners)
+          .sort((a,b) => runnerSortKey(a).localeCompare(runnerSortKey(b), undefined, {numeric:true}))
+          .map(r => { const p = parseRunner(r); return p.qty > 1 ? `${p.name}×${p.qty}` : p.name; })
+          .join(", ");
+        html += `<div class="border border-amber-200 rounded-lg p-3 bg-amber-50/50 mb-2">
+          <div class="font-medium text-amber-800 mb-1"><i class="fas fa-box-open mr-1"></i> Runners (${builderKitRunners.size})</div>
+          <div class="text-sm text-amber-900">${list}</div>
+        </div>`;
+      }
+      if (builderSections.length === 0) {
+        html += '<p class="text-slate-400 text-center text-sm">' + (builderKitRunners.size ? "Agora divida nas partes" : "Adicione runners e seções") + '</p>';
+      } else {
+        html += builderSections.map(sec => `
+          <div class="border rounded-lg p-3 bg-white">
+            <div class="font-medium mb-1.5 flex items-center gap-2">
+              <i class="fas ${sec.icon} text-blue-600"></i> ${sec.name}
+              <span class="text-xs text-slate-400">(${sec.steps.length} etapa${sec.steps.length!==1?"s":""})</span>
+            </div>
+            ${sec.steps.map((st, idx) => `
+              <div class="flex items-center gap-2 text-sm py-1 border-t">
+                <span class="text-slate-500 w-16">${st.page && st.page !== "—" ? "Pág. "+st.page : "—"}</span>
+                <span class="flex-1">${st.runners.map(r => { const p=parseRunner(r); return p.qty>1?p.name+"×"+p.qty:p.name; }).join(", ")}</span>
+                <button onclick="removeStep('${sec.id}', ${idx})" class="text-red-400 hover:text-red-600 text-xs"><i class="fas fa-trash"></i></button>
+              </div>
+            `).join("")}
+          </div>`).join("");
+      }
+      container.innerHTML = html;
+    }
+
+    function saveKitFromBuilder() {
+      const name = document.getElementById("newKitName").value.trim();
+      if (!name) { alert("Digite o nome do kit."); return; }
+      if (builderKitRunners.size === 0) { alert("Adicione pelo menos um runner."); return; }
+      if (builderSections.length === 0) { alert("Adicione pelo menos uma seção."); return; }
+
+      const sections = builderSections.map(s => ({
+        id: s.name.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,""),
+        name: s.name,
+        icon: s.icon,
+        steps: s.steps
+      }));
+
+      const kitData = {
+        name,
+        source: editingKitId && kits[editingKitId]?.source === "pdf" ? "pdf" : (editingKitId && kits[editingKitId]?.source === "default" ? "default" : "manual"),
+        kitRunners: Array.from(builderKitRunners).sort((a,b) => runnerSortKey(a).localeCompare(runnerSortKey(b), undefined, {numeric:true})),
+        sections
+      };
+
+      if (editingKitId) {
+        // keep source if was pdf/default
+        if (kits[editingKitId].source) kitData.source = kits[editingKitId].source;
+        if (kitData.source === "default") kitData.source = "manual"; // edited default becomes manual copy? or keep
+        // Actually if editing default, save as new custom override
+        if (kits[editingKitId].source === "default") {
+          kitData.source = "manual";
+        }
+        kits[editingKitId] = kitData;
+        saveState();
+        closeManualCreator();
+        if (currentView === "workspace" && currentKitId === editingKitId) {
+          document.getElementById("wsKitName").textContent = name;
+          renderWorkspace();
+        } else {
+          showHome();
+        }
+        alert("Kit atualizado!");
+      } else {
+        const id = "custom-" + Date.now();
+        kitData.source = "manual";
+        kits[id] = kitData;
+        saveState();
+        closeManualCreator();
+        showHome();
+        alert(`Kit "${name}" criado!`);
+      }
+    }
+
+    // ==================== PDF (PDF.js + text extraction) ====================
+    let extractedPdfData = null; // { runners: [], steps: [{page, runners}], rawText }
+
+    // Section keywords (JP + EN + PT hints)
+    const SECTION_KEYWORDS = [
+      { keys: ["腕部", "アーム", "ARM UNIT", "ARM ", "BRAÇO", "BRACO"], name: "Braços", icon: "fa-hand" },
+      { keys: ["脚部", "レッグ", "LEG UNIT", "LEG ", "PERNA", "PÉ", "PE "], name: "Pernas + Pés", icon: "fa-shoe-prints" },
+      { keys: ["ボディ", "胴体", "BODY", "TORSO", "CHEST"], name: "Torso + Cabeça", icon: "fa-user" },
+      { keys: ["頭部", "ヘッド", "HEAD"], name: "Cabeça", icon: "fa-hard-hat" },
+      { keys: ["腰部", "ウエスト", "WAIST", "CINTURA"], name: "Cintura", icon: "fa-circle" },
+      { keys: ["バックパック", "背中", "BACK PACK", "BACKPACK", "BACK "], name: "Backpack", icon: "fa-briefcase" },
+      { keys: ["武器", "ウェポン", "WEAPON", "ARMA", "BEAM RIFLE", "SHIELD", "BAZOOKA"], name: "Armas", icon: "fa-crosshairs" },
+      { keys: ["シールド", "シールドド", "SHIELD"], name: "Escudo", icon: "fa-shield-alt" }
+    ];
+
+    function handlePdfUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      pendingPdfName = file.name.replace(/\.pdf$/i, "");
+      extractedPdfData = null;
+
+      document.getElementById("pdfFileName").textContent = `Arquivo: ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)`;
+      document.getElementById("pdfStatus").classList.remove("hidden");
+      document.getElementById("pdfResult").classList.add("hidden");
+      document.getElementById("pdfCreateBtn").disabled = true;
+      document.getElementById("pdfSpinner").className = "fas fa-spinner fa-spin";
+      document.getElementById("pdfStatusText").textContent = "Lendo PDF…";
+      document.getElementById("pdfProgressBar").style.width = "5%";
+      document.getElementById("pdfKitName").value = pendingPdfName;
+      document.getElementById("pdfModal").classList.remove("hidden");
+      e.target.value = "";
+
+      processPdfFile(file);
+    }
+
+    function closePdfModal() {
+      document.getElementById("pdfModal").classList.add("hidden");
+      extractedPdfData = null;
+    }
+
+    async function processPdfFile(file) {
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        document.getElementById("pdfStatusText").textContent = "Abrindo documento…";
+        document.getElementById("pdfProgressBar").style.width = "10%";
+
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const numPages = pdf.numPages;
+        let fullText = "";
+        const pageTexts = [];
+        let embeddedTextLen = 0;
+
+        // 1) Extract embedded text
+        for (let i = 1; i <= numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const strings = content.items.map(item => item.str).join(" ");
+          embeddedTextLen += strings.replace(/\s/g, "").length;
+          pageTexts.push({ page: i, text: strings });
+          fullText += `\n---PAGE ${i}---\n` + strings;
+
+          const pct = 10 + Math.round((i / numPages) * 25);
+          document.getElementById("pdfProgressBar").style.width = pct + "%";
+          document.getElementById("pdfStatusText").textContent = `Extraindo texto… ${i}/${numPages}`;
+        }
+
+        // 2) OCR rápido se pouco texto embutido
+        // Otimizações:
+        // - Só inglês (letras A–Z dos runners são latinas)
+        // - Whitelist de caracteres
+        // - Escala 1.0 + grayscale
+        // - Máx. 12 páginas
+        // - Pula páginas que já têm texto embutido
+        const needsOcr = embeddedTextLen < 100;
+        let usedOcr = false;
+
+        if (needsOcr) {
+          usedOcr = true;
+          document.getElementById("pdfStatusText").textContent = "Pouco texto — OCR rápido (inglês, máx. 12 págs)…";
+          document.getElementById("pdfProgressBar").style.width = "38%";
+
+          const maxOcrPages = Math.min(numPages, 12);
+          const worker = await Tesseract.createWorker("eng", 1, { logger: () => {} });
+          await worker.setParameters({
+            tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789×xX・·.,:()[]- ",
+            tessedit_pageseg_mode: "6"
+          });
+
+          fullText = "";
+          for (let i = 1; i <= maxOcrPages; i++) {
+            const existing = (pageTexts[i - 1]?.text || "").replace(/\s/g, "");
+            if (existing.length > 40) {
+              fullText += `\n---PAGE ${i}---\n` + pageTexts[i - 1].text;
+              continue;
+            }
+
+            document.getElementById("pdfStatusText").textContent = `OCR rápido ${i}/${maxOcrPages}…`;
+            document.getElementById("pdfProgressBar").style.width = (38 + Math.round((i / maxOcrPages) * 48)) + "%";
+
+            const page = await pdf.getPage(i);
+            const scale = 1.0;
+            const viewport = page.getViewport({ scale });
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.floor(viewport.width);
+            canvas.height = Math.floor(viewport.height);
+            const ctx = canvas.getContext("2d", { alpha: false });
+            await page.render({ canvasContext: ctx, viewport }).promise;
+
+            try {
+              const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const d = img.data;
+              for (let p = 0; p < d.length; p += 4) {
+                let g = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+                g = g < 128 ? g * 0.85 : Math.min(255, g * 1.15);
+                d[p] = d[p + 1] = d[p + 2] = g;
+              }
+              ctx.putImageData(img, 0, 0);
+            } catch (_) {}
+
+            const result = await worker.recognize(canvas);
+            const ocrText = result?.data?.text || "";
+            pageTexts[i - 1] = { page: i, text: ocrText };
+            fullText += `\n---PAGE ${i}---\n` + ocrText;
+            canvas.width = 0;
+            canvas.height = 0;
+          }
+
+          await worker.terminate();
+          if (numPages > maxOcrPages) {
+            fullText += `\n[OCR limitado a ${maxOcrPages} de ${numPages} páginas — complete no editor]\n`;
+          }
+        }
+
+        document.getElementById("pdfStatusText").textContent = "Analisando runners e etapas…";
+        document.getElementById("pdfProgressBar").style.width = "92%";
+
+        extractedPdfData = parseManualText(fullText, pageTexts);
+        extractedPdfData.usedOcr = usedOcr;
+
+        // UI result
+        document.getElementById("pdfSpinner").className = "fas fa-check-circle text-green-500";
+        document.getElementById("pdfStatusText").textContent =
+          usedOcr ? "Análise concluída (com OCR)" : "Análise concluída";
+        document.getElementById("pdfProgressBar").style.width = "100%";
+        document.getElementById("pdfResult").classList.remove("hidden");
+
+        const runnerLabels = extractedPdfData.runners.map(r => {
+          const p = parseRunner(r);
+          return p.qty > 1 ? `${p.name}×${p.qty}` : p.name;
+        });
+        document.getElementById("pdfFoundRunners").textContent =
+          runnerLabels.length ? runnerLabels.join(", ") : "Nenhum detectado";
+        document.getElementById("pdfFoundSteps").textContent = extractedPdfData.steps.length || "0";
+        document.getElementById("pdfFoundPages").textContent =
+          usedOcr ? `${numPages} (OCR rápido ≤12 págs)` : String(numPages);
+
+        const warn = document.getElementById("pdfWarning");
+        if (extractedPdfData.runners.length === 0 && extractedPdfData.steps.length === 0) {
+          warn.textContent = usedOcr
+            ? "OCR não encontrou runners legíveis. Revise a qualidade do scan ou preencha manualmente no editor."
+            : "Nenhum runner detectado. Revise no editor.";
+          warn.classList.remove("hidden");
+        } else if (usedOcr) {
+          warn.textContent = "Dados obtidos via OCR — confira com atenção no editor (scans podem gerar erros).";
+          warn.classList.remove("hidden");
+        } else {
+          warn.classList.add("hidden");
+        }
+
+        document.getElementById("pdfCreateBtn").disabled = false;
+      } catch (err) {
+        console.error(err);
+        document.getElementById("pdfSpinner").className = "fas fa-exclamation-circle text-red-500";
+        document.getElementById("pdfStatusText").textContent = "Erro: " + (err.message || err);
+        document.getElementById("pdfProgressBar").style.width = "100%";
+        document.getElementById("pdfResult").classList.remove("hidden");
+        document.getElementById("pdfFoundRunners").textContent = "—";
+        document.getElementById("pdfFoundSteps").textContent = "—";
+        document.getElementById("pdfFoundPages").textContent = "—";
+        document.getElementById("pdfWarning").textContent = "Falha no processamento. Você pode criar o kit e preencher manualmente.";
+        document.getElementById("pdfWarning").classList.remove("hidden");
+        extractedPdfData = { runners: [], steps: [], sections: [] };
+        document.getElementById("pdfCreateBtn").disabled = false;
+      }
+    }
+
+    function parseManualText(fullText, pageTexts) {
+      const runnersMap = {}; // name -> max qty
+      const steps = [];
+
+      // --- Detect runners: A, B, B×2, (x2), etc. ---
+      // Patterns common in Bandai manuals and English translations
+      const runnerPatterns = [
+        /\b([A-Z]{1,3}\d?)\s*[×xX]\s*(\d+)\b/g,
+        /\b([A-Z]{1,3}\d?)\s*\(\s*[x×X]?\s*(\d+)\s*\)/g,
+        /\b([A-Z])\s*パーツ\s*[（(]?[x×]?\s*(\d+)/g,
+      ];
+
+      for (const re of runnerPatterns) {
+        let m;
+        const text = fullText;
+        while ((m = re.exec(text)) !== null) {
+          const name = m[1].toUpperCase();
+          const qty = parseInt(m[2], 10) || 1;
+          if (name.length <= 4 && !["THE","AND","FOR","PAGE","UNIT","ARM","LEG"].includes(name)) {
+            runnersMap[name] = Math.max(runnersMap[name] || 0, qty);
+          }
+        }
+      }
+
+      // Single letter runners near "パーツ" or in lists like A・B・C
+      const listRe = /(?:パーツ|RUNNER|使用する[^\n]{0,20})[^\n]{0,80}/gi;
+      let lm;
+      while ((lm = listRe.exec(fullText)) !== null) {
+        const chunk = lm[0];
+        const letters = chunk.match(/\b([A-Z]|[A-Z]\d|DC|PC|SA|SB|ZX)\b/g);
+        if (letters) {
+          letters.forEach(l => {
+            const name = l.toUpperCase();
+            if (!runnersMap[name]) runnersMap[name] = 1;
+          });
+        }
+      }
+
+      // Dot-separated lists: A・B・C・D or A・B×2・C
+      const dotListRe = /((?:[A-Z]{1,3}\d?[×xX]?\d?)[・‧·•、,]\s*){2,}[A-Z]{1,3}\d?[×xX]?\d?/g;
+      let dm;
+      while ((dm = dotListRe.exec(fullText)) !== null) {
+        const parts = dm[0].split(/[・‧·•、,\s]+/).filter(Boolean);
+        parts.forEach(p => {
+          const parsed = parseRunner(p.toUpperCase());
+          if (parsed.name && parsed.name.length <= 4) {
+            runnersMap[parsed.name] = Math.max(runnersMap[parsed.name] || 0, parsed.qty);
+          }
+        });
+      }
+
+      // Classic Bandai phrase: このページで使用するパーツは A・B・C です
+      const stepPhraseRe = /(?:このページで使用するパーツは|使用するパーツは|使用パーツ[:：]?)\s*([^\n。]{2,80})/g;
+      let sm;
+      while ((sm = stepPhraseRe.exec(fullText)) !== null) {
+        const chunk = sm[1];
+        // find which page this belongs to
+        const pos = sm.index;
+        let pageNum = "?";
+        const before = fullText.slice(Math.max(0, pos - 200), pos);
+        const pageMark = before.match(/---PAGE\s+(\d+)---/g);
+        if (pageMark) {
+          const last = pageMark[pageMark.length - 1];
+          pageNum = last.replace(/\D/g, "");
+        }
+        const found = [];
+        const tokenRe = /([A-Z]{1,3}\d?)\s*[×xX]?\s*(\d+)?/g;
+        let tm;
+        while ((tm = tokenRe.exec(chunk)) !== null) {
+          const name = tm[1].toUpperCase();
+          const qty = tm[2] ? parseInt(tm[2], 10) : 1;
+          if (name.length <= 4) {
+            found.push(qty > 1 ? `${name}×${qty}` : name);
+            runnersMap[name] = Math.max(runnersMap[name] || 0, qty);
+          }
+        }
+        // also split by ・
+        chunk.split(/[・‧·•、]/).forEach(tok => {
+          const p = parseRunner(tok.trim().toUpperCase());
+          if (p.name && /^[A-Z]{1,3}\d?$/.test(p.name)) {
+            const key = formatRunner(p.name, p.qty);
+            if (!found.includes(key) && !found.includes(p.name)) found.push(key);
+            runnersMap[p.name] = Math.max(runnersMap[p.name] || 0, p.qty);
+          }
+        });
+        if (found.length) {
+          steps.push({ page: String(pageNum), runners: [...new Set(found)] });
+        }
+      }
+
+      // English-style: "Parts used on this page: A, B, C"
+      const engStepRe = /(?:parts?\s+used|runners?\s+used|use\s+parts?)[:\s]+([A-Z0-9×xX,\s・‧]{3,60})/gi;
+      let em;
+      while ((em = engStepRe.exec(fullText)) !== null) {
+        const found = [];
+        em[1].split(/[,、・\s]+/).forEach(tok => {
+          const p = parseRunner(tok.trim().toUpperCase());
+          if (p.name && /^[A-Z]{1,3}\d?$/.test(p.name)) {
+            found.push(formatRunner(p.name, p.qty));
+            runnersMap[p.name] = Math.max(runnersMap[p.name] || 0, p.qty);
+          }
+        });
+        if (found.length) steps.push({ page: "—", runners: found });
+      }
+
+      // Build runner list
+      const runners = Object.keys(runnersMap)
+        .filter(n => n.length <= 4 && !["PAGE","UNIT","THE","AND"].includes(n))
+        .sort((a,b) => a.localeCompare(b, undefined, {numeric:true}))
+        .map(n => formatRunner(n, runnersMap[n]));
+
+      // Try to assign steps to sections by nearby keywords
+      const sections = groupStepsIntoSections(steps, fullText, pageTexts);
+
+      return { runners, steps, sections, pageCount: pageTexts.length };
+    }
+
+    function groupStepsIntoSections(steps, fullText, pageTexts) {
+      if (steps.length === 0) return [];
+
+      // Map page -> likely section name
+      const pageSection = {};
+      pageTexts.forEach(({ page, text }) => {
+        const upper = text.toUpperCase();
+        for (const sk of SECTION_KEYWORDS) {
+          if (sk.keys.some(k => upper.includes(k.toUpperCase()) || text.includes(k))) {
+            pageSection[page] = sk;
+            break;
+          }
+        }
+      });
+
+      const sectionMap = {};
+      steps.forEach(st => {
+        const pageNum = parseInt(st.page, 10);
+        let secInfo = pageSection[pageNum] || null;
+
+        // fallback: search around page marker in fullText
+        if (!secInfo && st.page !== "?" && st.page !== "—") {
+          const marker = `---PAGE ${st.page}---`;
+          const idx = fullText.indexOf(marker);
+          if (idx >= 0) {
+            const slice = fullText.slice(idx, idx + 1500).toUpperCase();
+            for (const sk of SECTION_KEYWORDS) {
+              if (sk.keys.some(k => slice.includes(k.toUpperCase()))) {
+                secInfo = sk;
+                break;
+              }
+            }
+          }
+        }
+
+        const secName = secInfo ? secInfo.name : "Outros";
+        const secIcon = secInfo ? secInfo.icon : "fa-cube";
+        if (!sectionMap[secName]) {
+          sectionMap[secName] = {
+            id: secName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""),
+            name: secName,
+            icon: secIcon,
+            steps: []
+          };
+        }
+        sectionMap[secName].steps.push({ page: st.page, runners: st.runners });
+      });
+
+      return Object.values(sectionMap);
+    }
+
+    function createPdfKit() {
+      const name = document.getElementById("pdfKitName").value.trim() || pendingPdfName || "Kit PDF";
+      const id = "pdf-" + Date.now();
+
+      const data = extractedPdfData || { runners: [], steps: [], sections: [] };
+
+      // Build sections: prefer grouped sections, else single "Outros" with all steps
+      let sections = data.sections && data.sections.length
+        ? data.sections
+        : (data.steps && data.steps.length
+            ? [{ id: "outros", name: "Outros", icon: "fa-cube", steps: data.steps }]
+            : []);
+
+      kits[id] = {
+        name,
+        source: "pdf",
+        kitRunners: data.runners || [],
+        sections
+      };
+      saveState();
+      closePdfModal();
+      editKit(id); // open editor with pre-filled data for review
+    }
+
+    // ==================== INIT ====================
+    loadState();
+    showHome();
+  </script>
+</body>
+</html>
