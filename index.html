@@ -366,6 +366,11 @@
       return qty > 1 ? `${name}×${qty}` : name;
     }
     function runnerSortKey(str) { return parseRunner(str).name; }
+    function sortRunnerList(arr) {
+      return [...arr].sort((a, b) =>
+        runnerSortKey(a).localeCompare(runnerSortKey(b), undefined, { numeric: true })
+      );
+    }
     function displayRunner(str) {
       const { name, qty } = parseRunner(str);
       return qty > 1 ? `${name}<span class="text-[10px] ml-0.5 font-bold opacity-80">×${qty}</span>` : name;
@@ -669,7 +674,7 @@
       const stepsHtml = section.steps.map((step, idx) => {
         const isCurrent = idx === currentStepIndex;
         const isDone = isStepCompleted(currentSectionId, idx);
-        const runnersHtml = step.runners.map(r => {
+        const runnersHtml = sortRunnerList(step.runners).map(r => {
           const key = resolveRunnerKey(r);
           const sep = separatedRunners.has(key);
           let cls = "runner-chip inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium border cursor-pointer ";
@@ -689,11 +694,11 @@
               </div>
               <div class="flex gap-2">
                 ${isCurrent ? `
-                  <button onclick="prevStep()" class="text-sm px-2.5 py-1 rounded bg-slate-200 hover:bg-slate-300" ${idx===0?"disabled":""}><i class="fas fa-arrow-left"></i></button>
+                  <button onclick="prevStep()" class="text-sm px-2.5 py-1 rounded bg-slate-200 hover:bg-slate-300"><i class="fas fa-arrow-left"></i></button>
                   <button onclick="toggleStepCompleted('${currentSectionId}', ${idx})" class="text-sm px-3 py-1 rounded ${isDone ? "bg-green-600 hover:bg-green-700" : "bg-blue-600 hover:bg-blue-700"} text-white">
                     ${isDone ? '<i class="fas fa-check-circle"></i> Concluída (desmarcar)' : 'Concluir <i class="fas fa-check"></i>'}
                   </button>
-                  <button onclick="nextStep()" class="text-sm px-2.5 py-1 rounded bg-slate-200 hover:bg-slate-300" ${idx >= section.steps.length-1 ? "disabled" : ""}><i class="fas fa-arrow-right"></i></button>
+                  <button onclick="nextStep()" class="text-sm px-2.5 py-1 rounded bg-slate-200 hover:bg-slate-300"><i class="fas fa-arrow-right"></i></button>
                 ` : `
                   <button onclick="goToStep(${idx})" class="text-xs text-blue-600 hover:underline">Ir para</button>
                   <button onclick="toggleStepCompleted('${currentSectionId}', ${idx})" class="text-xs ${isDone?"text-green-600":"text-slate-500"} hover:underline">
@@ -765,11 +770,37 @@
     }
     function goToStep(idx) { currentStepIndex = idx; renderWorkspace(); }
     function nextStep() {
-      const sec = getKit()?.sections.find(s => s.id === currentSectionId);
-      if (sec && currentStepIndex < sec.steps.length - 1) { currentStepIndex++; renderWorkspace(); }
+      const kit = getKit();
+      if (!kit) return;
+      const secs = kit.sections.filter(s => s.steps && s.steps.length);
+      const si = secs.findIndex(s => s.id === currentSectionId);
+      if (si < 0) return;
+      const sec = secs[si];
+      if (currentStepIndex < sec.steps.length - 1) {
+        currentStepIndex++;
+      } else if (si < secs.length - 1) {
+        currentSectionId = secs[si + 1].id;
+        currentStepIndex = 0;
+      }
+      afterStepNav();
     }
     function prevStep() {
-      if (currentStepIndex > 0) { currentStepIndex--; renderWorkspace(); }
+      const kit = getKit();
+      if (!kit) return;
+      const secs = kit.sections.filter(s => s.steps && s.steps.length);
+      const si = secs.findIndex(s => s.id === currentSectionId);
+      if (si < 0) return;
+      if (currentStepIndex > 0) {
+        currentStepIndex--;
+      } else if (si > 0) {
+        currentSectionId = secs[si - 1].id;
+        currentStepIndex = secs[si - 1].steps.length - 1;
+      }
+      afterStepNav();
+    }
+    function afterStepNav() {
+      renderWorkspace();
+      if (focusMode) renderFocus();
     }
     function toggleStepCompleted(secId, idx) {
       const key = stepKey(secId, idx);
@@ -777,12 +808,14 @@
       else completedSteps[key] = true;
       saveState();
       renderWorkspace();
+      if (focusMode) renderFocus();
     }
     function toggleSeparated(runner) {
       if (separatedRunners.has(runner)) separatedRunners.delete(runner);
       else separatedRunners.add(runner);
       saveState();
       renderWorkspace();
+      if (focusMode) renderFocus();
     }
     function toggleBoxChecked(runner) {
       if (boxChecked.has(runner)) boxChecked.delete(runner);
@@ -817,6 +850,7 @@
       if (currentView !== "workspace") return;
       focusMode = !focusMode;
       document.body.classList.toggle("focus-mode", focusMode);
+      renderWorkspace();
       if (focusMode) renderFocus();
     }
 
@@ -830,10 +864,10 @@
       const isDone = isStepCompleted(currentSectionId, currentStepIndex);
       document.getElementById("focusTitle").textContent = `${section.name} – ${step.page && step.page !== "—" ? "Página " + step.page : "Etapa " + (currentStepIndex + 1)}`;
 
-      const runnersHtml = step.runners.map(r => {
+      const runnersHtml = sortRunnerList(step.runners).map(r => {
         const key = resolveRunnerKey(r);
         const sep = separatedRunners.has(key);
-        return `<span class="inline-flex items-center px-4 py-2 rounded-xl text-lg font-bold border-2 m-1 ${sep ? "bg-green-500/20 border-green-400 text-green-300" : "bg-blue-500/20 border-blue-400 text-blue-200"}" onclick="toggleSeparated('${key}')">${displayRunner(key)}</span>`;
+        return `<span class="inline-flex items-center px-4 py-2 rounded-xl text-lg font-bold border-2 m-1 cursor-pointer select-none ${sep ? "bg-green-500/20 border-green-400 text-green-300" : "bg-blue-500/20 border-blue-400 text-blue-200"}" onclick="event.stopPropagation(); toggleSeparated('${key}')">${displayRunner(key)}</span>`;
       }).join("");
 
       document.getElementById("focusContent").innerHTML = `
@@ -1059,7 +1093,7 @@
         container.innerHTML = '<span class="text-slate-400 text-sm">Nenhum</span>';
         return;
       }
-      container.innerHTML = Array.from(builderSelectedRunners).map(r =>
+      container.innerHTML = sortRunnerList(Array.from(builderSelectedRunners)).map(r =>
         `<span class="inline-flex items-center gap-1 bg-blue-100 text-blue-800 border border-blue-300 px-2.5 py-1 rounded-md text-sm font-medium">
           ${displayRunner(r)} <button onclick="toggleBuilderRunner('${r}')" class="text-blue-500 hover:text-red-500">&times;</button>
         </span>`
@@ -1072,7 +1106,7 @@
       if (builderSelectedRunners.size === 0) { alert("Selecione pelo menos um runner."); return; }
       const page = document.getElementById("stepPage").value.trim() || "—";
       const sec = builderSections.find(s => s.id === builderCurrentSecId);
-      sec.steps.push({ page, runners: Array.from(builderSelectedRunners) });
+      sec.steps.push({ page, runners: sortRunnerList(Array.from(builderSelectedRunners)) });
       builderSelectedRunners = new Set();
       document.getElementById("stepPage").value = "";
       renderStepRunnerPicker();
@@ -1139,7 +1173,7 @@
         id: s.name.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,""),
         name: s.name,
         icon: s.icon,
-        steps: s.steps
+        steps: s.steps.map(st => ({ ...st, runners: sortRunnerList(st.runners || []) }))
       }));
 
       const kitData = {
