@@ -207,11 +207,11 @@
       <div id="step2ModePick" class="mb-5">
         <p class="text-sm font-medium mb-3">Como quer organizar as partes?</p>
         <div class="grid sm:grid-cols-2 gap-3">
-          <button onclick="chooseStep2Mode('simple')" class="text-left border rounded-xl p-4 hover:border-blue-500 hover:bg-blue-50">
+          <button onclick="chooseStep2Mode('simple')" class="mode-choice-card text-left border rounded-xl p-4 hover:border-blue-500 hover:bg-blue-50">
             <div class="font-semibold mb-1">Modo simplificado</div>
             <p class="text-xs text-slate-500">Arraste os runners para a silhueta. Sem número de página.</p>
           </button>
-          <button onclick="chooseStep2Mode('full')" class="text-left border rounded-xl p-4 hover:border-blue-500 hover:bg-blue-50">
+          <button onclick="chooseStep2Mode('full')" class="mode-choice-card text-left border rounded-xl p-4 hover:border-blue-500 hover:bg-blue-50">
             <div class="font-semibold mb-1">Modo completo</div>
             <p class="text-xs text-slate-500">Partes + etapas + página do manual.</p>
           </button>
@@ -225,6 +225,10 @@
       <div id="simpleModePanel" class="hidden mb-4">
         <p class="text-xs text-slate-500 mb-2">O estoque não some: o mesmo runner pode ir para várias partes. Arraste ou toque no runner e depois na zona. × tira só daquela parte.</p>
         <div id="simplePool" class="flex flex-wrap gap-1.5 min-h-[40px] p-2 mb-3 border border-dashed rounded-xl bg-slate-50"></div>
+        <div class="flex gap-2 mb-3">
+          <input id="simpleCustomName" type="text" placeholder="Parte personalizada..." class="flex-1 border rounded-lg px-3 py-1.5 text-sm" />
+          <button onclick="addSimpleCustomPart()" class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm">Adicionar</button>
+        </div>
         <div class="grid md:grid-cols-2 gap-4 items-start">
           <div id="gundamSilhouette" class="relative mx-auto w-full max-w-[260px]"></div>
           <div id="simplePartLists" class="space-y-2 text-sm"></div>
@@ -401,18 +405,16 @@
       { id: "armas", name: "Armas", icon: "fa-crosshairs" },
       { id: "outros", name: "Outros", icon: "fa-cube" }
     ];
-
-    const PRESET_SECTIONS = [
-      { name: "Braços", icon: "fa-hand" },
-      { name: "Pernas + Pés", icon: "fa-shoe-prints" },
-      { name: "Torso + Cabeça", icon: "fa-user" },
-      { name: "Cintura", icon: "fa-circle" },
-      { name: "Backpack", icon: "fa-briefcase" },
-      { name: "Armas", icon: "fa-crosshairs" },
-      { name: "Escudo", icon: "fa-shield-alt" },
-      { name: "Cabeça", icon: "fa-hard-hat" },
-      { name: "Outros", icon: "fa-cube" }
+    const EXTRA_SLOTS = [
+      { id: "ex", label: "EX", fill: "#f3e8ff", stroke: "#7c3aed", text: "#6b21a8" },
+      { id: "ex1", label: "EX1", fill: "#fce7f3", stroke: "#db2777", text: "#9d174d" },
+      { id: "ex2", label: "EX2", fill: "#ccfbf1", stroke: "#0f766e", text: "#115e59" },
+      { id: "ex3", label: "EX3", fill: "#ffedd5", stroke: "#c2410c", text: "#9a3412" }
     ];
+    let builderExtra = {};
+    let builderPartNames = {};
+
+    const PRESET_SECTIONS = SIMPLE_PARTS.map(p => ({ id: p.id, name: p.name, icon: p.icon }));
     const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
     const SPECIAL_RUNNERS = ["A1","A2","B1","B2","M1","M2","O1","O2","DC","PC","SB","ZX","Z","SA","PC-1","PC-2"];
 
@@ -971,11 +973,13 @@
       (kit.kitRunners || []).forEach(r => builderKitRunners.add(r));
       // load sections
       builderSections = kit.sections.map(s => ({
-        id: s.id + "-" + Date.now(),
+        id: (s.catalogId || s.id) + "-" + Date.now(),
+        catalogId: s.catalogId || knownPartId(s.id) || partIdFromName(s.name) || s.id,
         name: s.name,
         icon: s.icon || "fa-cube",
         steps: s.steps.map(st => ({ page: st.page, runners: [...st.runners] }))
       }));
+      syncSimpleFromSections();
       renderKitRunnerButtons();
       renderKitRunnersList();
       renderPresetSections();
@@ -997,7 +1001,21 @@
     function resetSimpleMap() {
       builderSimpleMap = {};
       SIMPLE_PARTS.forEach(p => { builderSimpleMap[p.id] = []; });
+      EXTRA_SLOTS.forEach(p => { builderSimpleMap[p.id] = []; });
+      builderExtra = {};
+      EXTRA_SLOTS.forEach(p => { builderExtra[p.id] = { enabled: false, name: p.label }; });
+      builderPartNames = {};
       builderSimplePick = null;
+    }
+
+    function enabledExtraParts() {
+      return EXTRA_SLOTS.filter(s => builderExtra[s.id]?.enabled).map(s => ({
+        id: s.id, name: builderExtra[s.id].name || s.label, icon: "fa-cube", extra: s
+      }));
+    }
+    function allSimpleParts() {
+      const base = SIMPLE_PARTS.map(p => ({ ...p, name: builderPartNames[p.id] || p.name }));
+      return base.concat(enabledExtraParts());
     }
 
     function resetBuilder() {
@@ -1070,6 +1088,9 @@
       if (mode === "simple") {
         syncSimpleFromSections();
         renderSimpleMode();
+      } else {
+        applySimpleToSections();
+        renderPresetSections();
       }
       renderKitPreview();
     }
@@ -1084,29 +1105,99 @@
       return sortRunnerList(Array.from(builderKitRunners));
     }
 
-    function syncSimpleFromSections() {
-      resetSimpleMap();
-      const nameToId = {
-        "cabeça": "cabeca", "cabeca": "cabeca", "torso": "torso", "torso + cabeça": "torso",
-        "braços": "bracos", "bracos": "bracos", "cintura": "cintura",
-        "pernas + pés": "pernas", "pernas": "pernas", "backpack": "backpack",
-        "armas": "armas", "outros": "outros"
+    function knownPartId(id) {
+      if (!id) return null;
+      const base = String(id).replace(/-\d+$/, "");
+      if (SIMPLE_PARTS.some(p => p.id === base) || EXTRA_SLOTS.some(p => p.id === base)) return base;
+      return null;
+    }
+
+    function partIdFromName(name) {
+      const n = (name || "").toLowerCase();
+      const map = {
+        "cabeça": "cabeca", "cabeca": "cabeca", "head": "cabeca",
+        "torso": "torso", "torso + cabeça": "torso",
+        "braços": "bracos", "bracos": "bracos", "arms": "bracos",
+        "cintura": "cintura", "waist": "cintura",
+        "pernas + pés": "pernas", "pernas": "pernas", "legs": "pernas",
+        "backpack": "backpack", "armas": "armas", "outros": "outros"
       };
+      return map[n] || null;
+    }
+
+    function resolveSectionPartId(sec) {
+      return knownPartId(sec.catalogId) || knownPartId(sec.id) || partIdFromName(sec.name);
+    }
+
+    function syncSimpleFromSections() {
+      const keepExtra = { ...builderExtra };
+      const keepNames = { ...builderPartNames };
+      const keepMap = { ...builderSimpleMap };
+      resetSimpleMap();
+      builderExtra = keepExtra;
+      builderPartNames = keepNames;
+      EXTRA_SLOTS.forEach(s => {
+        if (!builderExtra[s.id]) builderExtra[s.id] = { enabled: false, name: s.label };
+        builderSimpleMap[s.id] = keepMap[s.id] || builderSimpleMap[s.id] || [];
+      });
+      SIMPLE_PARTS.forEach(p => {
+        builderSimpleMap[p.id] = keepMap[p.id] || [];
+      });
+
       builderSections.forEach(sec => {
-        const id = nameToId[(sec.name || "").toLowerCase()] || "outros";
+        let id = resolveSectionPartId(sec);
+        if (!id) {
+          const byName = EXTRA_SLOTS.find(s => builderExtra[s.id]?.enabled && builderExtra[s.id].name === sec.name);
+          if (byName) id = byName.id;
+          else {
+            const slot = EXTRA_SLOTS.find(s => !builderExtra[s.id]?.enabled);
+            if (slot) {
+              id = slot.id;
+              builderExtra[slot.id] = { enabled: true, name: sec.name };
+            } else id = "outros";
+          }
+        }
+        if (EXTRA_SLOTS.some(s => s.id === id)) {
+          builderExtra[id] = { enabled: true, name: sec.name || builderExtra[id]?.name || id.toUpperCase() };
+        } else if (sec.name && SIMPLE_PARTS.some(p => p.id === id) && sec.name !== SIMPLE_PARTS.find(p => p.id === id).name) {
+          builderPartNames[id] = sec.name;
+        }
         const rs = [];
         (sec.steps || []).forEach(st => (st.runners || []).forEach(r => rs.push(r)));
-        builderSimpleMap[id] = sortRunnerList([...new Set([...(builderSimpleMap[id]||[]), ...rs])]);
+        const merged = [...(builderSimpleMap[id] || []), ...rs];
+        const seen = new Set();
+        builderSimpleMap[id] = sortRunnerList(merged.filter(r => {
+          const k = parseRunner(r).name;
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        }));
+        sec.catalogId = id;
       });
     }
 
     function applySimpleToSections() {
-      builderSections = SIMPLE_PARTS.filter(p => (builderSimpleMap[p.id] || []).length).map(p => ({
-        id: p.id + "-" + Date.now(),
-        name: p.name,
-        icon: p.icon,
-        steps: [{ page: "—", runners: sortRunnerList(builderSimpleMap[p.id]) }]
-      }));
+      const byCat = {};
+      builderSections.forEach(s => {
+        const id = resolveSectionPartId(s);
+        if (id) byCat[id] = s;
+      });
+      const next = [];
+      allSimpleParts().forEach(p => {
+        const runners = sortRunnerList(builderSimpleMap[p.id] || []);
+        const prev = byCat[p.id];
+        if (!runners.length && !prev) return;
+        next.push({
+          id: prev?.id || (p.id + "-" + Date.now()),
+          catalogId: p.id,
+          name: p.name,
+          icon: p.icon,
+          steps: prev && prev.steps && prev.steps.length && builderStep2Mode === "full"
+            ? prev.steps
+            : [{ page: "—", runners }]
+        });
+      });
+      builderSections = next;
     }
 
     function renderSimpleMode() {
@@ -1135,8 +1226,19 @@
           <text x="29" y="286" text-anchor="middle" font-size="8" fill="#991b1b" pointer-events="none">Armas</text>
           <rect data-part="outros" x="152" y="250" width="40" height="70" rx="8" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
           <text x="172" y="288" text-anchor="middle" font-size="8" fill="#334155" pointer-events="none">Outros</text>
+          ${EXTRA_SLOTS.map((s, i) => {
+            const on = builderExtra[s.id]?.enabled;
+            const x = 152 + (i % 2) * 22;
+            const y = 178 + Math.floor(i / 2) * 24;
+            if (!on) {
+              return `<rect data-part="${s.id}" data-disabled="1" x="${x}" y="${y}" width="20" height="20" rx="3" fill="none" stroke="none" pointer-events="none"/>`;
+            }
+            return `<rect data-part="${s.id}" x="${x}" y="${y}" width="20" height="20" rx="3" fill="${s.fill}" stroke="${s.stroke}" stroke-width="2"/>
+              <text x="${x+10}" y="${y+13}" text-anchor="middle" font-size="6" fill="${s.text}" pointer-events="none">${s.label}</text>`;
+          }).join("")}
         </svg>`;
       sil.querySelectorAll("[data-part]").forEach(el => {
+        if (el.getAttribute("data-disabled") === "1") return;
         el.style.cursor = "pointer";
         el.addEventListener("dragover", e => { e.preventDefault(); el.setAttribute("stroke-width", "3"); });
         el.addEventListener("dragleave", () => el.setAttribute("stroke-width", "2"));
@@ -1157,10 +1259,16 @@
         ? unused.map(r => simpleChip(r, true)).join("")
         : '<span class="text-slate-400 text-xs">Nenhum runner no estoque</span>';
 
-      document.getElementById("simplePartLists").innerHTML = SIMPLE_PARTS.map(p => {
+      document.getElementById("simplePartLists").innerHTML = allSimpleParts().map(p => {
         const list = sortRunnerList(builderSimpleMap[p.id] || []);
-        return `<div class="border rounded-lg p-2 ${list.length ? "bg-white" : "bg-slate-50"}">
-          <div class="font-medium text-slate-700 mb-1"><i class="fas ${p.icon} mr-1 text-blue-600"></i>${p.name}</div>
+        const ex = p.extra;
+        const border = ex ? `border-color:${ex.stroke};background:${ex.fill}` : "";
+        return `<div class="border rounded-lg p-2 ${list.length ? "bg-white" : "bg-slate-50"}" style="${border}">
+          <div class="font-medium text-slate-700 mb-1 flex items-center gap-1">
+            <i class="fas ${p.icon} text-blue-600"></i>
+            <span class="flex-1">${p.name}${ex ? ` <span class="text-[10px] opacity-70">(${ex.label})</span>` : ""}</span>
+            <button onclick="renameSimplePart('${p.id}')" class="text-slate-400 hover:text-blue-600 text-xs" title="Renomear"><i class="fas fa-pen"></i></button>
+          </div>
           <div class="flex flex-wrap gap-1 min-h-[24px]">${list.length ? list.map(r => simpleChip(r, false, p.id)).join("") : '<span class="text-slate-400 text-xs">—</span>'}</div>
         </div>`;
       }).join("");
@@ -1176,8 +1284,36 @@
       builderSimplePick = builderSimplePick === r ? null : r;
       renderSimpleMode();
     }
+    function addSimpleCustomPart() {
+      const input = document.getElementById("simpleCustomName");
+      const name = (input?.value || "").trim();
+      if (!name) return;
+      const slot = EXTRA_SLOTS.find(s => !builderExtra[s.id]?.enabled);
+      if (!slot) { alert("No máximo 4 partes personalizadas (EX–EX3)."); return; }
+      builderExtra[slot.id] = { enabled: true, name };
+      builderSimpleMap[slot.id] = builderSimpleMap[slot.id] || [];
+      if (input) input.value = "";
+      applySimpleToSections();
+      renderSimpleMode();
+      renderKitPreview();
+    }
+
+    function renameSimplePart(partId) {
+      const base = SIMPLE_PARTS.find(p => p.id === partId);
+      const extra = builderExtra[partId];
+      const cur = extra?.enabled ? extra.name : (base?.name || "");
+      const next = prompt("Novo nome da parte:", cur);
+      if (!next || !next.trim()) return;
+      if (extra?.enabled) extra.name = next.trim();
+      else builderPartNames[partId] = next.trim();
+      applySimpleToSections();
+      renderSimpleMode();
+      renderKitPreview();
+    }
+
     function dropRunnerOnPart(partId, runner) {
       if (!partId || !runner) return;
+      if (builderExtra[partId] && !builderExtra[partId].enabled) return;
       const list = builderSimpleMap[partId] || [];
       const exists = list.some(x => parseRunner(x).name === parseRunner(runner).name);
       if (!exists) builderSimpleMap[partId] = sortRunnerList([...list, runner]);
@@ -1275,7 +1411,7 @@
         .sort((a,b) => runnerSortKey(a).localeCompare(runnerSortKey(b), undefined, {numeric:true}))
         .map(r => {
           const { name, qty } = parseRunner(r);
-          return `<span class="inline-flex items-center gap-1 bg-amber-100 text-amber-900 border border-amber-300 px-2 py-1 rounded-md text-sm font-medium">
+          return `<span class="kit-sel-chip inline-flex items-center gap-1 bg-amber-100 text-amber-900 border border-amber-300 px-2 py-1 rounded-md text-sm font-medium">
             ${name}${qty > 1 ? `<span class="text-xs font-bold">×${qty}</span>` : ""}
             <button onclick="addOrIncKitRunner('${name}')" class="text-amber-700 hover:text-amber-900 text-xs font-bold px-1">+</button>
             <button onclick="decKitRunner('${name}')" class="text-amber-700 hover:text-amber-900 text-xs font-bold px-1">−</button>
@@ -1285,19 +1421,82 @@
     }
 
     function renderPresetSections() {
-      document.getElementById("presetSections").innerHTML = PRESET_SECTIONS.map(s => {
-        const exists = builderSections.find(bs => bs.name === s.name);
-        const active = builderCurrentSecId && builderSections.find(bs => bs.id === builderCurrentSecId)?.name === s.name;
-        return `<button onclick="selectOrAddSection('${s.name}', '${s.icon}')" class="px-3 py-1.5 rounded-lg text-sm border transition ${active ? "bg-blue-600 text-white border-blue-600" : exists ? "bg-blue-50 border-blue-300 text-blue-700" : "bg-white border-slate-300 hover:border-blue-400"}">
-          <i class="fas ${s.icon} mr-1"></i>${s.name}
+      const presetIds = new Set(PRESET_SECTIONS.map(s => s.id));
+      const presets = PRESET_SECTIONS.map(s => {
+        const exists = builderSections.find(bs => resolveSectionPartId(bs) === s.id);
+        const active = builderCurrentSecId && resolveSectionPartId(builderSections.find(bs => bs.id === builderCurrentSecId) || {}) === s.id;
+        const label = builderPartNames[s.id] || s.name;
+        return `<button onclick="selectOrAddSection('${s.id}', '${label.replace(/'/g, "\\'")}', '${s.icon}')" class="px-3 py-1.5 rounded-lg text-sm border transition ${active ? "bg-blue-600 text-white border-blue-600" : exists ? "bg-blue-50 border-blue-300 text-blue-700" : "bg-white border-slate-300 hover:border-blue-400"}">
+          <i class="fas ${s.icon} mr-1"></i>${label}
         </button>`;
       }).join("");
+      const customs = builderSections.filter(s => {
+        const id = resolveSectionPartId(s);
+        return !id || !presetIds.has(id);
+      }).map(s => {
+        const active = builderCurrentSecId === s.id;
+        return `<span class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm border ${active ? "bg-violet-600 text-white border-violet-600" : "bg-violet-50 border-violet-300 text-violet-800"}">
+          <button onclick="selectExistingSection('${s.id}')">${s.name}</button>
+          <button onclick="renameSection('${s.id}')" class="opacity-70 hover:opacity-100" title="Renomear"><i class="fas fa-pen text-xs"></i></button>
+        </span>`;
+      }).join("");
+      const extraChips = EXTRA_SLOTS.filter(s => builderExtra[s.id]?.enabled && !builderSections.some(b => resolveSectionPartId(b) === s.id)).map(s => {
+        return `<span class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm border bg-violet-50 border-violet-300 text-violet-800">
+          <button onclick="selectOrAddSection('${s.id}', '${(builderExtra[s.id].name || s.label).replace(/'/g,"\\'")}', 'fa-cube')">${builderExtra[s.id].name || s.label}</button>
+        </span>`;
+      }).join("");
+      document.getElementById("presetSections").innerHTML = presets + customs + extraChips;
     }
 
-    function selectOrAddSection(name, icon) {
-      let sec = builderSections.find(s => s.name === name);
+    function selectExistingSection(id) {
+      const sec = builderSections.find(s => s.id === id);
+      if (!sec) return;
+      builderCurrentSecId = sec.id;
+      builderSelectedRunners = new Set();
+      document.getElementById("currentSectionLabel").textContent = sec.name;
+      document.getElementById("stepPage").value = "";
+      renderPresetSections();
+      renderStepRunnerPicker();
+      renderSelectedRunners();
+      renderKitPreview();
+    }
+
+    function renameSection(secId) {
+      const sec = builderSections.find(s => s.id === secId);
+      if (!sec) return;
+      const next = prompt("Novo nome da parte:", sec.name);
+      if (!next || !next.trim()) return;
+      sec.name = next.trim();
+      const cid = resolveSectionPartId(sec);
+      if (cid && SIMPLE_PARTS.some(p => p.id === cid)) builderPartNames[cid] = sec.name;
+      if (cid && builderExtra[cid]) builderExtra[cid].name = sec.name;
+      if (builderCurrentSecId === secId) {
+        document.getElementById("currentSectionLabel").textContent = sec.name;
+      }
+      renderPresetSections();
+      renderKitPreview();
+    }
+
+    function renameStep(secId, idx) {
+      const sec = builderSections.find(s => s.id === secId);
+      if (!sec || !sec.steps[idx]) return;
+      const cur = sec.steps[idx].page || "";
+      const next = prompt("Nome ou página da etapa:", cur === "—" ? "" : cur);
+      if (next === null) return;
+      sec.steps[idx].page = next.trim() || "—";
+      renderKitPreview();
+    }
+
+    function selectOrAddSection(catalogId, name, icon) {
+      let sec = builderSections.find(s => resolveSectionPartId(s) === catalogId || s.name === name);
       if (!sec) {
-        sec = { id: name.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"") + "-" + Date.now(), name, icon, steps: [] };
+        sec = {
+          id: catalogId + "-" + Date.now(),
+          catalogId,
+          name,
+          icon,
+          steps: []
+        };
         builderSections.push(sec);
       }
       builderCurrentSecId = sec.id;
@@ -1313,7 +1512,11 @@
     function addCustomSection() {
       const name = document.getElementById("customSectionName").value.trim();
       if (!name) return;
-      selectOrAddSection(name, "fa-cube");
+      const slot = EXTRA_SLOTS.find(s => !builderExtra[s.id]?.enabled);
+      if (!slot) { alert("No máximo 4 partes personalizadas (EX–EX3)."); return; }
+      builderExtra[slot.id] = { enabled: true, name };
+      builderSimpleMap[slot.id] = builderSimpleMap[slot.id] || [];
+      selectOrAddSection(slot.id, name, "fa-cube");
       document.getElementById("customSectionName").value = "";
     }
 
@@ -1401,10 +1604,12 @@
             <div class="font-medium mb-1.5 flex items-center gap-2">
               <i class="fas ${sec.icon} text-blue-600"></i> ${sec.name}
               <span class="text-xs text-slate-400">(${sec.steps.length} etapa${sec.steps.length!==1?"s":""})</span>
+              <button onclick="renameSection('${sec.id}')" class="text-slate-400 hover:text-blue-600 text-xs" title="Renomear parte"><i class="fas fa-pen"></i></button>
             </div>
             ${sec.steps.map((st, idx) => `
               <div class="flex items-center gap-2 text-sm py-1 border-t">
-                <span class="text-slate-500 w-16">${st.page && st.page !== "—" ? "Pág. "+st.page : "—"}</span>
+                <span class="text-slate-500">${st.page && st.page !== "—" ? "Pág. "+st.page : "Etapa "+(idx+1)}</span>
+                <button onclick="renameStep('${sec.id}', ${idx})" class="text-slate-400 hover:text-blue-600 text-xs" title="Renomear etapa"><i class="fas fa-pen"></i></button>
                 <span class="flex-1">${st.runners.map(r => { const p=parseRunner(r); return p.qty>1?p.name+"×"+p.qty:p.name; }).join(", ")}</span>
                 <button onclick="removeStep('${sec.id}', ${idx})" class="text-red-400 hover:text-red-600 text-xs"><i class="fas fa-trash"></i></button>
               </div>
@@ -1421,12 +1626,16 @@
       if (builderStep2Mode === "simple") applySimpleToSections();
       if (builderSections.length === 0) { alert("Adicione pelo menos uma seção."); return; }
 
-      const sections = builderSections.map(s => ({
-        id: s.name.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,""),
-        name: s.name,
-        icon: s.icon,
-        steps: s.steps.map(st => ({ ...st, runners: sortRunnerList(st.runners || []) }))
-      }));
+      const sections = builderSections.map(s => {
+        const cid = resolveSectionPartId(s) || s.catalogId;
+        return {
+          id: cid || s.name.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,""),
+          catalogId: cid || null,
+          name: s.name,
+          icon: s.icon,
+          steps: s.steps.map(st => ({ ...st, runners: sortRunnerList(st.runners || []) }))
+        };
+      });
 
       const kitData = {
         name,
